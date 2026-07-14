@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { demandsAPI, servicesAPI } from '../services/api';
+import { generateUUID } from '../utils/uuid';
 import { normalize, matchesQuery, highlight } from '../utils/search';
 import {
   Upload, FileImage, Scan, PenLine, CheckCircle,
@@ -89,7 +90,7 @@ export default function OrdonnanceUpload({ onSuccess }) {
     setError('');
     setResult(null);
     try {
-      const idempotencyKey = crypto.randomUUID();
+      const idempotencyKey = generateUUID();
       if (type === 'manual') {
         if (selectedServices.length === 0) {
           setError('Sélectionnez au moins une analyse');
@@ -657,4 +658,3 @@ const styles = {
   touchAction: 'manipulation',
 },
 };
-
