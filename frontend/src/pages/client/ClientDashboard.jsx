@@ -10,6 +10,9 @@ import { LayoutDashboard, User, Upload, FileText, RefreshCw, DollarSign, FlaskCo
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
+
+//im just trying 
+
 function typeLabel(type) {
   if (type === 'ocr') return 'Imprimée';
   if (type === 'manual') return 'Manuelle';
