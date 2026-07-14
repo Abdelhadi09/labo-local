@@ -176,7 +176,7 @@ export default function OrdonnanceUpload({ onSuccess }) {
           {type === 'ocr' && <><Scan size={14} color="var(--teal)" /> Ordonnance imprimée (OCR)</>}
           {type === 'handwritten' && <><PenLine size={14} color="var(--coral)" /> Ordonnance manuscrite</>}
           {type === 'manual' && <><ListChecks size={14} color="var(--gold)" /> Sélection manuelle</>}
-          <button onClick={reset} style={styles.changeBtn}><X size={12} /> Changer</button>
+          <button onClick={reset} style={styles.changeBtn}><X size={12} /> Annuler</button>
         </div>
       )}
 
@@ -312,9 +312,13 @@ export default function OrdonnanceUpload({ onSuccess }) {
                   </p>
                 </div>
               </div>
-              <button className="btn btn-secondary btn-sm" onClick={() => setFile(null)}>
-                <X size={12} /> Changer
-              </button>
+              <button 
+    style={styles.closeBtn} 
+    onClick={() => setFile(null)}
+    aria-label="Remove file"
+  >
+    <X size={14} color="#fff" />
+  </button>
             </div>
           )}
 
@@ -566,13 +570,31 @@ const styles = {
   dropHint: { fontSize: '0.78rem', color: 'var(--text-muted)' },
   filePreview: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '12px 16px', background: 'rgba(10,147,150,0.05)',
+    padding: '12px 36px 12px 16px', background: 'rgba(10,147,150,0.05)',
     borderRadius: 'var(--radius-sm)', border: '1.5px solid rgba(10,147,150,0.2)',
+    position: 'relative',
   },
   fileInfo: { display: 'flex', alignItems: 'center', gap: 10 },
   imgPreview: {
     display: 'flex', justifyContent: 'center',
     padding: 12, background: 'var(--cream-dark)', borderRadius: 'var(--radius-md)',
+  },
+  closeBtn: {
+    position: 'absolute',
+    top: '-12px',
+    right: '-12px',
+    width: '24px',
+    height: '24px',
+    borderRadius: '50%',
+    backgroundColor: 'var(--teal)', // Or use 'rgba(10,147,150,0.8)' to match your theme
+    border: 'none',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    padding: 0,
+    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+    transition: 'background-color 0.2s ease',
   },
 
   // ── Result ──

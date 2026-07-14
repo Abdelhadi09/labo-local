@@ -11,9 +11,9 @@ import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
 function typeLabel(type) {
-  if (type === 'ocr') return '🖨️ Imprimée';
-  if (type === 'manual') return '📋 Manuelle';
-  return '✍️ Manuscrite';
+  if (type === 'ocr') return 'Imprimée';
+  if (type === 'manual') return 'Manuelle';
+  return 'Manuscrite';
 }
 
 function isProcessed(status) {
