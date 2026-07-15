@@ -178,7 +178,19 @@ export const demandsAPI = {
 export const nurseAPI = {
   request:      (data)         => api.post('/nurse', data),
   list:         (page = 1, limit = 20) => api.get('/nurse', { params: { page, limit } }),
-  updateStatus: (id, status)   => api.put(`/nurse/${id}/status`, { status }),
+  mine:         (demandIds = []) => api.get('/nurse/mine', { params: demandIds.length ? { demand_ids: demandIds.join(',') } : {} }),
+  updateStatus: (id, status, reason = null) => api.put(`/nurse/${id}/status`, { status, reason }),
+  assign:       (id, nurseId, force = false) => api.put(`/nurse/${id}/assign`, { nurse_id: nurseId, force }),
+  cancel:       (id)           => api.put(`/nurse/${id}/cancel`),
+};
+
+// Roster CRUD — worker-only, no nurse-facing login.
+export const nursesRosterAPI = {
+  list:        (includeInactive = false) => api.get('/nurses', { params: includeInactive ? { include_inactive: 1 } : {} }),
+  create:      (data)        => api.post('/nurses', data),
+  update:      (id, data)    => api.put(`/nurses/${id}`, data),
+  setActive:   (id, isActive) => api.put(`/nurses/${id}/active`, { is_active: isActive }),
+  load:        (date)        => api.get('/nurses/load', { params: { date } }),
 };
 
 export default api;

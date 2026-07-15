@@ -5,15 +5,15 @@ import OrdonnanceUpload from '../../components/OrdonnanceUpload';
 import StatusBadge from '../../components/StatusBadge';
 import NurseRequestModal from '../../components/NurseRequestModal';
 import { useIsMobile } from '../../hooks/useIsMobile';
-import { demandsAPI, profileAPI } from '../../services/api';
+import { demandsAPI, profileAPI, nurseAPI } from '../../services/api';
 import { LayoutDashboard, User, Upload, FileText, RefreshCw, DollarSign, FlaskConical, Stethoscope } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
 function typeLabel(type) {
-  if (type === 'ocr') return 'Imprimée';
-  if (type === 'manual') return 'Manuelle';
-  return 'Manuscrite';
+  if (type === 'ocr') return '🖨️ Imprimée';
+  if (type === 'manual') return '📋 Manuelle';
+  return '✍️ Manuscrite';
 }
 
 function isProcessed(status) {
@@ -289,13 +289,28 @@ function HistoryTab({ isMobile }) {
   const [loading, setLoading] = useState(true);
   const [nurseModal, setNurseModal] = useState(null); // demand object
   const [nurseSuccess, setNurseSuccess] = useState(null); // demand id
-  const [nurseRequested, setNurseRequested] = useState({}); // { demand_id: true }
+  const [nurseRequests, setNurseRequests] = useState({}); // { demand_id: {id, status, preferred_date, preferred_slot, assigned_nurse_name, ...} }
+  const [cancellingId, setCancellingId] = useState(null);
 
   const load = () => {
     setLoading(true);
     demandsAPI.list(1, 100).then(r => setDemands(r.data.data)).catch(() => {}).finally(() => setLoading(false));
   };
   useEffect(() => { load(); }, []);
+
+  // Once demands are loaded, fetch this client's own nurse requests for all
+  // of them in one call, keyed by demand_id — gives real status (pending /
+  // confirmed / done / cancelled / no_show) instead of a local "requested" flag.
+  useEffect(() => {
+    if (demands.length === 0) return;
+    nurseAPI.mine(demands.map(d => d.id))
+      .then(res => {
+        const byDemand = {};
+        (res.data?.data || []).forEach(nr => { byDemand[nr.demand_id] = nr; });
+        setNurseRequests(byDemand);
+      })
+      .catch(() => {});
+  }, [demands]);
 
   // Realtime subscription removed (Epic 5.2). Stopgap: poll every 30s,
   // plus the existing manual "Actualiser" button in the card header.
@@ -307,8 +322,32 @@ function HistoryTab({ isMobile }) {
   const handleNurseSuccess = (demandId) => {
     setNurseModal(null);
     setNurseSuccess(demandId);
-    setNurseRequested(prev => ({ ...prev, [demandId]: true }));
+    // Re-fetch so the new request's real status (pending, with its date/slot)
+    // replaces the optimistic "just submitted" state.
+    nurseAPI.mine(demands.map(d => d.id))
+      .then(res => {
+        const byDemand = {};
+        (res.data?.data || []).forEach(nr => { byDemand[nr.demand_id] = nr; });
+        setNurseRequests(byDemand);
+      })
+      .catch(() => {});
     setTimeout(() => setNurseSuccess(null), 4000);
+  };
+
+  const handleCancelNurse = async (nurseRequestId, demandId) => {
+    if (!window.confirm('Annuler cette demande d\'infirmière ?')) return;
+    setCancellingId(nurseRequestId);
+    try {
+      await nurseAPI.cancel(nurseRequestId);
+      setNurseRequests(prev => ({
+        ...prev,
+        [demandId]: { ...prev[demandId], status: 'cancelled', cancelled_by: 'client' },
+      }));
+    } catch (e) {
+      alert(e.response?.data?.error || "Erreur lors de l'annulation");
+    } finally {
+      setCancellingId(null);
+    }
   };
   
 
@@ -336,8 +375,10 @@ function HistoryTab({ isMobile }) {
             {demands.map(d => (
               <MobileDemandCard key={d.id} d={d} showLink
                 showNurse={isProcessed(d.status)}
-                nurseAlreadyRequested={nurseRequested[d.id]}
+                nurseRequest={nurseRequests[d.id]}
                 onNurse={() => setNurseModal(d)}
+                onCancelNurse={handleCancelNurse}
+                cancellingNurse={cancellingId === nurseRequests[d.id]?.id}
               />
             ))}
           </div>
@@ -373,19 +414,13 @@ function HistoryTab({ isMobile }) {
                         : <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>—</span>}
                     </td>
                     <td style={styles.td}>
-                      {isProcessed(d.status) ? (
-                        nurseRequested[d.id] ? (
-                          <span style={{ fontSize: '0.78rem', color: 'var(--teal)', fontWeight: 600 }}>✓ Demandée</span>
-                        ) : (
-                          <button className="btn btn-sm"
-                            style={{ background: 'rgba(233,196,106,0.15)', color: '#92400e', border: '1px solid #fcd34d', gap: 5 }}
-                            onClick={() => setNurseModal(d)}>
-                            <Stethoscope size={12} /> Infirmière
-                          </button>
-                        )
-                      ) : (
-                        <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>—</span>
-                      )}
+                      <NurseCell
+                        demand={d}
+                        nurseRequest={nurseRequests[d.id]}
+                        onRequest={() => setNurseModal(d)}
+                        onCancel={handleCancelNurse}
+                        cancelling={cancellingId === nurseRequests[d.id]?.id}
+                      />
                     </td>
                   </tr>
                 ))}
@@ -407,7 +442,7 @@ function HistoryTab({ isMobile }) {
   );
 }
 
-function MobileDemandCard({ d, showLink, showNurse, nurseAlreadyRequested, onNurse }) {
+function MobileDemandCard({ d, showLink, showNurse, nurseRequest, onNurse, onCancelNurse, cancellingNurse }) {
   return (
     <div style={{
       background: 'var(--cream)', borderRadius: 'var(--radius-md)', padding: '12px 14px',
@@ -431,7 +466,7 @@ function MobileDemandCard({ d, showLink, showNurse, nurseAlreadyRequested, onNur
           {d.items.map(i => i.name).join(' · ')}
         </p>
       )}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2, alignItems: 'center' }}>
         {showLink && d.ordonnance_url && d.ordonnance_url !== 'manual' && (
           <OrdonnanceLink demandId={d.id}
             style={{ fontSize: '0.8rem', color: 'var(--teal)', fontWeight: 600 }}>
@@ -439,20 +474,73 @@ function MobileDemandCard({ d, showLink, showNurse, nurseAlreadyRequested, onNur
           </OrdonnanceLink>
         )}
         {showNurse && (
-          nurseAlreadyRequested ? (
-            <span style={{ fontSize: '0.78rem', color: 'var(--teal)', fontWeight: 600 }}>🩺 Infirmière demandée</span>
-          ) : (
-            <button onClick={onNurse}
-              style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(233,196,106,0.15)',
-                color: '#92400e', border: '1px solid #fcd34d', borderRadius: 6,
-                padding: '4px 10px', fontSize: '0.78rem', fontWeight: 600,
-                cursor: 'pointer', fontFamily: 'var(--font-body)',
-                WebkitTapHighlightColor: 'transparent' }}>
-              <Stethoscope size={12} /> Demander une infirmière
-            </button>
-          )
+          <NurseCell
+            demand={d}
+            nurseRequest={nurseRequest}
+            onRequest={onNurse}
+            onCancel={onCancelNurse}
+            cancelling={cancellingNurse}
+          />
         )}
       </div>
+    </div>
+  );
+}
+
+// Shared between desktop table and mobile card: shows the real nurse-request
+// status for a demand (not just "requested or not"), and offers a cancel
+// action while it's still cancellable (pending or confirmed).
+const NURSE_REQUEST_LABELS = {
+  pending:   { text: 'En attente de confirmation', color: '#92400e' },
+  confirmed: { text: 'Confirmée', color: '#065f46' },
+  done:      { text: 'Effectuée', color: '#1e40af' },
+  cancelled: { text: 'Annulée', color: '#991b1b' },
+  no_show:   { text: 'Absence constatée', color: '#78350f' },
+};
+
+function NurseCell({ demand, nurseRequest, onRequest, onCancel, cancelling }) {
+  if (!isProcessed(demand.status)) {
+    return <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>—</span>;
+  }
+
+  if (!nurseRequest) {
+    return (
+      <button className="btn btn-sm"
+        style={{ background: 'rgba(233,196,106,0.15)', color: '#92400e', border: '1px solid #fcd34d', gap: 5 }}
+        onClick={onRequest}>
+        <Stethoscope size={12} /> Infirmière
+      </button>
+    );
+  }
+
+  const info = NURSE_REQUEST_LABELS[nurseRequest.status] || NURSE_REQUEST_LABELS.pending;
+  const canCancel = ['pending', 'confirmed'].includes(nurseRequest.status);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <span style={{ fontSize: '0.78rem', fontWeight: 600, color: info.color }}>
+        🩺 {info.text}
+        {nurseRequest.status === 'confirmed' && nurseRequest.assigned_nurse_name && ` · ${nurseRequest.assigned_nurse_name}`}
+      </span>
+      {nurseRequest.preferred_date && ['pending', 'confirmed'].includes(nurseRequest.status) && (
+        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+          {format(new Date(nurseRequest.preferred_date), 'dd MMM', { locale: fr })}
+          {' · '}{nurseRequest.preferred_slot === 'morning' ? 'Matin' : 'Après-midi'}
+        </span>
+      )}
+      {canCancel && (
+        <button
+          onClick={() => onCancel(nurseRequest.id, demand.id)}
+          disabled={cancelling}
+          style={{
+            fontSize: '0.72rem', color: 'var(--coral)', background: 'none', border: 'none',
+            padding: 0, textAlign: 'left', cursor: 'pointer', textDecoration: 'underline',
+            fontFamily: 'var(--font-body)', width: 'fit-content',
+          }}
+        >
+          {cancelling ? 'Annulation…' : 'Annuler'}
+        </button>
+      )}
     </div>
   );
 }
