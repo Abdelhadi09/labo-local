@@ -3,11 +3,13 @@ import { createPortal } from 'react-dom';
 import { nurseAPI, profileAPI } from '../services/api';
 import MapPicker from './MapPicker';
 import Stepper, { Step } from './Stepper';
-import { X, Phone, MapPin, CheckCircle, AlertCircle, User, FlaskConical } from 'lucide-react';
+import { X, Phone, MapPin, CheckCircle, AlertCircle, User, FlaskConical, Calendar, Sunrise, Sun } from 'lucide-react';
 
 export default function NurseRequestModal({ demand, onClose, onSuccess }) {
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [phone, setPhone] = useState('');
+  const [preferredDate, setPreferredDate] = useState('');
+  const [preferredSlot, setPreferredSlot] = useState('');
   const [useProfileAddress, setUseProfileAddress] = useState(true);
   const [mapAddress, setMapAddress] = useState(null);
   const [profileAddress, setProfileAddress] = useState('');
@@ -30,8 +32,19 @@ export default function NurseRequestModal({ demand, onClose, onSuccess }) {
 
   const finalAddress = useProfileAddress ? profileAddress : mapAddress?.address;
 
+  // Mirrors the backend cutoff: same-day morning slot can't be booked past midday,
+  // since fasting-test visits need lead time to staff for an early round.
+  const todayStr = new Date().toISOString().split('T')[0];
+  const isMorningCutoffPassed = preferredDate === todayStr && new Date().getHours() >= 12;
+
   const handleSubmit = async () => {
     if (!phone.trim()) { setError('Veuillez entrer votre numéro de téléphone'); return; }
+    if (!preferredDate) { setError('Veuillez choisir une date souhaitée'); return; }
+    if (!preferredSlot) { setError('Veuillez choisir un créneau (matin ou après-midi)'); return; }
+    if (preferredDate === todayStr && preferredSlot === 'morning' && isMorningCutoffPassed) {
+      setError("Trop tard pour réserver le créneau du matin aujourd'hui — choisissez demain ou l'après-midi");
+      return;
+    }
     if (!finalAddress) { setError('Veuillez sélectionner une adresse'); return; }
     setLoading(true);
     setError('');
@@ -42,6 +55,8 @@ export default function NurseRequestModal({ demand, onClose, onSuccess }) {
         address: finalAddress,
         address_lat: useProfileAddress ? null : mapAddress?.lat,
         address_lng: useProfileAddress ? null : mapAddress?.lng,
+        preferred_date: preferredDate,
+        preferred_slot: preferredSlot,
       });
       onSuccess();
     } catch (err) {
@@ -151,7 +166,69 @@ export default function NurseRequestModal({ demand, onClose, onSuccess }) {
             </div>
           </Step>
 
-          {/* ── Step 3 : Adresse ── */}
+          {/* ── Step 3 : Date et créneau ── */}
+          <Step>
+            <div style={styles.stepBody}>
+              <div style={styles.stepIcon}>
+                <Calendar size={20} color="var(--teal)" />
+              </div>
+              <h4 style={styles.stepTitle}>Date et créneau souhaités</h4>
+              <p style={styles.stepHint}>
+                Pour les analyses à jeun, préférez le créneau du matin.
+              </p>
+              <div className="form-group" style={{ marginTop: 14 }}>
+                <label>Date *</label>
+                <input
+                  type="date"
+                  min={todayStr}
+                  value={preferredDate}
+                  onChange={e => {
+                    const newDate = e.target.value;
+                    setPreferredDate(newDate);
+                    const morningNowInvalid = newDate === todayStr && new Date().getHours() >= 12;
+                    if (morningNowInvalid && preferredSlot === 'morning') setPreferredSlot('');
+                  }}
+                  style={{ fontSize: '16px' }}
+                />
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--navy)', display: 'block', marginBottom: 8 }}>
+                  Créneau *
+                </label>
+                <div style={{ display: 'flex', gap: 8, flexDirection: isMobile ? 'column' : 'row' }}>
+                  <button
+                    type="button"
+                    disabled={isMorningCutoffPassed}
+                    style={{
+                      ...styles.toggleBtn,
+                      ...(preferredSlot === 'morning' ? styles.toggleActive : {}),
+                      width: isMobile ? '100%' : 'auto',
+                      opacity: isMorningCutoffPassed ? 0.45 : 1,
+                      cursor: isMorningCutoffPassed ? 'not-allowed' : 'pointer',
+                    }}
+                    onClick={() => !isMorningCutoffPassed && setPreferredSlot('morning')}
+                  >
+                    <Sunrise size={14} /> Matin
+                  </button>
+                  <button
+                    type="button"
+                    style={{ ...styles.toggleBtn, ...(preferredSlot === 'afternoon' ? styles.toggleActive : {}), width: isMobile ? '100%' : 'auto' }}
+                    onClick={() => setPreferredSlot('afternoon')}
+                  >
+                    <Sun size={14} /> Après-midi
+                  </button>
+                </div>
+                {isMorningCutoffPassed && (
+                  <div className="alert alert-warning" style={{ marginTop: 10 }}>
+                    <AlertCircle size={13} style={{ flexShrink: 0 }} />
+                    Trop tard pour le créneau du matin aujourd'hui.
+                  </div>
+                )}
+              </div>
+            </div>
+          </Step>
+
+          {/* ── Step 4 : Adresse ── */}
           <Step>
             <div style={styles.stepBody}>
               <div style={styles.stepIcon}>

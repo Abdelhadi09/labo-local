@@ -18,6 +18,7 @@ import FilterBar from './components/FilterBar';
 import DemandCard from './components/DemandCard';
 import DemandModal from './components/DemandModal';
 import NurseTab from './components/NurseTab';
+import NurseFilterBar from './components/NurseFilterBar';
 
 /* ── Search helpers (accent-insensitive, keyword-aware) ── */
 
@@ -44,6 +45,29 @@ function applyFilters(items, nameFilter, dateFilter) {
         d.getDate()     !== t.getDate()
       ) return false;
     }
+    return true;
+  });
+}
+
+// Nurse tab filters by name, preferred visit date, and request status.
+function applyNurseFilters(items, nameFilter, preferredDateFilter, statusFilter) {
+  return items.filter(item => {
+    if (nameFilter.trim()) {
+      const name = normalize(getClientName(item));
+      const q = normalize(nameFilter.trim());
+      if (!q.split(/\s+/).every(w => name.includes(w))) return false;
+    }
+    if (preferredDateFilter) {
+      if (!item.preferred_date) return false;
+      const d = new Date(item.preferred_date);
+      const t = new Date(preferredDateFilter);
+      if (
+        d.getFullYear() !== t.getFullYear() ||
+        d.getMonth()    !== t.getMonth()    ||
+        d.getDate()     !== t.getDate()
+      ) return false;
+    }
+    if (statusFilter && item.status !== statusFilter) return false;
     return true;
   });
 }
@@ -80,6 +104,11 @@ export default function WorkerDashboard() {
   // ── Shared filter state across all tabs ──
   const [nameFilter, setNameFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
+
+  // ── Nurse tab filter state (name, preferred date, status) ──
+  const [nurseNameFilter, setNurseNameFilter] = useState('');
+  const [nursePreferredDateFilter, setNursePreferredDateFilter] = useState('');
+  const [nurseStatusFilter, setNurseStatusFilter] = useState('');
 
   const load = (page = demandsPage) => {
     setLoading(true);
@@ -146,11 +175,20 @@ export default function WorkerDashboard() {
 
   const baseList        = tab === 'pending' ? pending : tab === 'processed' ? processed : demands;
   const filteredDemands = applyFilters(baseList, nameFilter, dateFilter);
-  const filteredNurse   = applyFilters(nurseRequests, nameFilter, dateFilter);
+  const filteredNurse   = applyNurseFilters(nurseRequests, nurseNameFilter, nursePreferredDateFilter, nurseStatusFilter);
   const hasFilters      = nameFilter.trim() || dateFilter;
+  const hasNurseFilters = nurseNameFilter.trim() || nursePreferredDateFilter || nurseStatusFilter;
 
   const filterBarProps = { nameFilter, setNameFilter, dateFilter, setDateFilter, isMobile };
   const clearFilters   = () => { setNameFilter(''); setDateFilter(''); };
+
+  const nurseFilterBarProps = {
+    nameFilter: nurseNameFilter, setNameFilter: setNurseNameFilter,
+    dateFilter: nursePreferredDateFilter, setDateFilter: setNursePreferredDateFilter,
+    statusFilter: nurseStatusFilter, setStatusFilter: setNurseStatusFilter,
+    isMobile,
+  };
+  const clearNurseFilters = () => { setNurseNameFilter(''); setNursePreferredDateFilter(''); setNurseStatusFilter(''); };
 
   const activeIndex = tabs.findIndex(t => t.id === tab);
 
@@ -260,9 +298,9 @@ export default function WorkerDashboard() {
               total={nurseTotal}
               limit={PAGE_LIMIT}
               onPageChange={p => loadNurse(p)}
-              hasFilters={hasFilters}
-              filterBarProps={filterBarProps}
-              onClearFilters={clearFilters}
+              hasFilters={hasNurseFilters}
+              filterBarProps={nurseFilterBarProps}
+              onClearFilters={clearNurseFilters}
             />
           )}
         </main>
