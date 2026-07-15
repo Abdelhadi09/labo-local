@@ -134,6 +134,7 @@ app.use('/api/profile', require('./routes/profile'));
 app.use('/api/services', require('./routes/services'));
 app.use('/api/demands', require('./routes/demands'));
 app.use('/api/nurse', require('./routes/nurse'));
+app.use('/api/nurses', require('./routes/nurses'));
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

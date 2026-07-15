@@ -84,16 +84,36 @@ CREATE TABLE IF NOT EXISTS "public"."demand_items" (
     "price"       numeric(10,2) NOT NULL
 );
 
+-- Simple roster of nurses the lab dispatches for home visits.
+-- Not user accounts: nurses don't log in, they're managed by workers.
+CREATE TABLE IF NOT EXISTS "public"."nurses" (
+    "id"                    uuid DEFAULT gen_random_uuid() NOT NULL,
+    "name"                  text NOT NULL,
+    "phone"                 text NOT NULL,
+    "zone"                  text,                            -- free-text coverage area, e.g. "Tipaza / Kolea"
+    "max_visits_per_day"    integer DEFAULT 6 NOT NULL,       -- capacity ceiling; varies per nurse (zone size, experience)
+    "is_active"             boolean DEFAULT true NOT NULL,
+    "created_at"            timestamp with time zone DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS "public"."nurse_requests" (
-    "id"           uuid DEFAULT gen_random_uuid() NOT NULL,
-    "demand_id"    uuid NOT NULL,
-    "client_id"    uuid NOT NULL,
-    "phone"        text NOT NULL,
-    "address"      text NOT NULL,
-    "address_lat"  double precision,
-    "address_lng"  double precision,
-    "status"       text DEFAULT 'pending'::text NOT NULL,
-    "created_at"   timestamp with time zone DEFAULT now()
+    "id"                 uuid DEFAULT gen_random_uuid() NOT NULL,
+    "demand_id"          uuid NOT NULL,
+    "client_id"          uuid NOT NULL,
+    "phone"              text NOT NULL,
+    "address"            text NOT NULL,
+    "address_lat"        double precision,
+    "address_lng"        double precision,
+    "status"             text DEFAULT 'pending'::text NOT NULL,
+    "assigned_nurse_id"  uuid,                      -- who's actually going; set when worker confirms
+    "preferred_date"     date NOT NULL,              -- client's requested visit day; required — "whenever" isn't a real slot
+    "preferred_slot"     text NOT NULL,               -- 'morning' | 'afternoon' — matches how nurses actually do rounds
+    -- Who ended it and why, when status is 'cancelled' or 'no_show'. NULL for
+    -- any other status. Dead end by design: no reopening, client re-submits.
+    "cancelled_by"       text,                        -- 'client' | 'worker'
+    "cancelled_reason"   text,
+    "cancelled_at"       timestamp with time zone,
+    "created_at"         timestamp with time zone DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS "public"."refresh_tokens" (
@@ -138,6 +158,11 @@ ALTER TABLE ONLY "public"."demands"
 ALTER TABLE ONLY "public"."demand_items"
     ADD CONSTRAINT "demand_items_pkey" PRIMARY KEY ("id");
 
+ALTER TABLE ONLY "public"."nurses"
+    ADD CONSTRAINT "nurses_pkey" PRIMARY KEY ("id");
+ALTER TABLE ONLY "public"."nurses"
+    ADD CONSTRAINT "nurses_max_visits_per_day_check" CHECK ("max_visits_per_day" > 0);
+
 ALTER TABLE ONLY "public"."nurse_requests"
     ADD CONSTRAINT "nurse_requests_pkey" PRIMARY KEY ("id");
 
@@ -168,6 +193,14 @@ ALTER TABLE ONLY "public"."nurse_requests"
     ADD CONSTRAINT "nurse_requests_client_id_fkey" FOREIGN KEY ("client_id") REFERENCES "public"."users"("id");
 ALTER TABLE ONLY "public"."nurse_requests"
     ADD CONSTRAINT "nurse_requests_demand_id_fkey" FOREIGN KEY ("demand_id") REFERENCES "public"."demands"("id");
+ALTER TABLE ONLY "public"."nurse_requests"
+    ADD CONSTRAINT "nurse_requests_assigned_nurse_id_fkey" FOREIGN KEY ("assigned_nurse_id") REFERENCES "public"."nurses"("id") ON DELETE SET NULL;
+ALTER TABLE ONLY "public"."nurse_requests"
+    ADD CONSTRAINT "nurse_requests_preferred_slot_check" CHECK ("preferred_slot" IN ('morning', 'afternoon'));
+ALTER TABLE ONLY "public"."nurse_requests"
+    ADD CONSTRAINT "nurse_requests_status_check" CHECK ("status" IN ('pending', 'confirmed', 'done', 'cancelled', 'no_show'));
+ALTER TABLE ONLY "public"."nurse_requests"
+    ADD CONSTRAINT "nurse_requests_cancelled_by_check" CHECK ("cancelled_by" IS NULL OR "cancelled_by" IN ('client', 'worker'));
 
 ALTER TABLE ONLY "public"."refresh_tokens"
     ADD CONSTRAINT "refresh_tokens_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE CASCADE;
@@ -191,6 +224,10 @@ CREATE INDEX "idx_demands_status_created" ON "public"."demands" USING btree ("st
 CREATE INDEX "idx_nurse_requests_client_id" ON "public"."nurse_requests" USING btree ("client_id");
 CREATE INDEX "idx_nurse_requests_demand_id" ON "public"."nurse_requests" USING btree ("demand_id");
 CREATE INDEX "nurse_requests_created_at_idx" ON "public"."nurse_requests" USING btree ("created_at");
+CREATE INDEX "idx_nurse_requests_assigned_nurse_id" ON "public"."nurse_requests" USING btree ("assigned_nurse_id");
+CREATE INDEX "idx_nurse_requests_preferred_date" ON "public"."nurse_requests" USING btree ("preferred_date");
+
+CREATE INDEX "idx_nurses_is_active" ON "public"."nurses" USING btree ("is_active");
 
 CREATE INDEX "idx_refresh_tokens_family" ON "public"."refresh_tokens" USING btree ("family_id");
 CREATE INDEX "idx_refresh_tokens_hash" ON "public"."refresh_tokens" USING btree ("token_hash");
