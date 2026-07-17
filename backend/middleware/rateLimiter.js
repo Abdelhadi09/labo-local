@@ -25,7 +25,7 @@ const make = (windowMs, max, message) =>
 // Covers brute-force on /login and prevents /client/session spam.
 const authLimiter = make(
   15 * 60 * 1000,   // 15 min window
-  10,
+  100,
   'Trop de tentatives de connexion. Réessayez dans 15 minutes.'
 );
 

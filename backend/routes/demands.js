@@ -9,6 +9,7 @@ const { validate } = require('../middleware/validate');
 const fs = require('fs');
 const { uploadOrdonnance, deleteOrdonnance, resolveStoredPath, mimeForStoredPath } = require('../services/blobStorage');
 const { extractTextFromImage, matchServicesFromText } = require('../services/ocrService');
+const { getDefaultBranchId } = require('../services/branchAssignment');
 const { withTimeout } = require('../utils/withTimeout');
 const posthog = require('../config/posthog');
 
@@ -97,6 +98,16 @@ router.post('/', authenticate, requireRole('client'), uploadLimiter, upload.sing
     if (!profileRows[0])
       return res.status(400).json({ error: 'Please complete your profile before submitting' });
 
+    // Phase 1a: demands always go to the default branch (see
+    // getDefaultBranchId's docstring) rather than a real ORS-based
+    // assignment — that's Phase 1b. Resolved once here so both creation
+    // paths below (manual and file-upload) use the same value.
+    const branchId = await getDefaultBranchId();
+    if (!branchId) {
+      console.error('Demand creation failed: no active branches configured');
+      return res.status(503).json({ error: "Aucune agence disponible pour le moment. Veuillez réessayer plus tard." });
+    }
+
     // ── Manual mode ────────────────────────────────────────────────────────
     if (ordonnance_type === 'manual') {
       if (!service_ids) return res.status(400).json({ error: 'service_ids is required for manual submission' });
@@ -113,8 +124,8 @@ router.post('/', authenticate, requireRole('client'), uploadLimiter, upload.sing
       const itemsJson = JSON.stringify(selectedServices.map(s => ({ service_id: s.id, price: s.price })));
 
       const { rows: demandRows } = await query(
-        `SELECT * FROM create_demand_with_items($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
-        [req.user.id, 'manual', 'manual', 'processed', null, totalPrice, itemsJson, idempotency_key || null]
+        `SELECT * FROM create_demand_with_items($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)`,
+        [req.user.id, 'manual', 'manual', 'processed', null, totalPrice, itemsJson, idempotency_key || null, branchId]
       );
       const demand = demandRows[0].create_demand_with_items; // jsonb result: { id }
 
@@ -168,8 +179,8 @@ router.post('/', authenticate, requireRole('client'), uploadLimiter, upload.sing
     // ── DB insert (with file cleanup on failure) ────────────────────────────
     const itemsJson = JSON.stringify(matchedServices.map(s => ({ service_id: s.id, price: s.price })));
     const { rows: demandRows } = await query(
-      `SELECT * FROM create_demand_with_items($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
-      [req.user.id, fileUrl, ordonnance_type, status, ocrText, totalPrice, itemsJson, idempotency_key || null]
+      `SELECT * FROM create_demand_with_items($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)`,
+      [req.user.id, fileUrl, ordonnance_type, status, ocrText, totalPrice, itemsJson, idempotency_key || null, branchId]
     );
     const demand = demandRows[0].create_demand_with_items;
 
@@ -224,6 +235,11 @@ router.post('/', authenticate, requireRole('client'), uploadLimiter, upload.sing
 const listDemandsValidation = [
   queryValidator('page').optional().isInt({ min: 1 }).withMessage('page must be a positive integer'),
   queryValidator('limit').optional().isInt({ min: 1, max: 100 }).withMessage('limit must be between 1 and 100'),
+  // Admin-only: narrow the "all branches" overview to one specific branch.
+  // Ignored for non-admins (a branch-scoped worker already can't see past
+  // their own branch, so their own branch_id "wins" regardless of what's
+  // passed here — see below).
+  queryValidator('branch_id').optional().isUUID().withMessage('branch_id must be a valid UUID'),
 ];
 
 router.get('/', authenticate, listDemandsValidation, validate, async (req, res) => {
@@ -249,19 +265,35 @@ router.get('/', authenticate, listDemandsValidation, validate, async (req, res) 
 
     let rows, countRows;
 
-    if (req.user.role === 'worker') {
+    if (req.user.role === 'worker' || req.user.role === 'admin') {
+      const isAdmin = req.user.role === 'admin';
+      // Worker: always their own branch, no matter what's in the query
+      // string — the query param only ever narrows an admin's view, it
+      // can't be used to escape a worker's own branch scoping.
+      const effectiveBranchId = isAdmin ? (req.query.branch_id || null) : req.user.branch_id;
+      const branchClause = effectiveBranchId ? `WHERE d.branch_id = $3` : '';
+      const params = effectiveBranchId ? [limit, offset, effectiveBranchId] : [limit, offset];
+
       ({ rows } = await query(
         `SELECT d.*, ${itemsAgg},
                 u.username,
-                cp.first_name, cp.last_name, cp.birthday, cp.address
+                cp.first_name, cp.last_name, cp.birthday, cp.address,
+                b.name AS branch_name
          FROM demands d
          LEFT JOIN users u ON u.id = d.client_id
          LEFT JOIN client_profiles cp ON cp.user_id = u.id
+         LEFT JOIN branches b ON b.id = d.branch_id
+         ${branchClause}
          ORDER BY d.created_at DESC
          LIMIT $1 OFFSET $2`,
-        [limit, offset]
+        params
       ));
-      ({ rows: countRows } = await query(`SELECT COUNT(*)::int AS count FROM demands`));
+      ({ rows: countRows } = await query(
+        effectiveBranchId
+          ? `SELECT COUNT(*)::int AS count FROM demands WHERE branch_id = $1`
+          : `SELECT COUNT(*)::int AS count FROM demands`,
+        effectiveBranchId ? [effectiveBranchId] : []
+      ));
     } else {
       ({ rows } = await query(
         `SELECT d.*, ${itemsAgg}
@@ -282,7 +314,7 @@ router.get('/', authenticate, listDemandsValidation, validate, async (req, res) 
     const demands = rows.map(d => {
       const { items_raw, username, first_name, last_name, birthday, address, ...rest } = d;
       const base = { ...rest, items: mapItems(items_raw) };
-      return req.user.role === 'worker'
+      return (req.user.role === 'worker' || req.user.role === 'admin')
         ? { ...base, username, first_name, last_name, birthday, address }
         : base;
     });
@@ -320,10 +352,25 @@ router.get('/:id', authenticate, param('id').isUUID().withMessage('id must be a 
       ({ rows } = await query(
         `SELECT d.*, ${itemsAgg},
                 u.username,
-                cp.first_name, cp.last_name, cp.birthday, cp.address
+                cp.first_name, cp.last_name, cp.birthday, cp.address,
+                b.name AS branch_name
          FROM demands d
          LEFT JOIN users u ON u.id = d.client_id
          LEFT JOIN client_profiles cp ON cp.user_id = u.id
+         LEFT JOIN branches b ON b.id = d.branch_id
+         WHERE d.id = $1 AND d.branch_id = $2`,
+        [req.params.id, req.user.branch_id]
+      ));
+    } else if (req.user.role === 'admin') {
+      ({ rows } = await query(
+        `SELECT d.*, ${itemsAgg},
+                u.username,
+                cp.first_name, cp.last_name, cp.birthday, cp.address,
+                b.name AS branch_name
+         FROM demands d
+         LEFT JOIN users u ON u.id = d.client_id
+         LEFT JOIN client_profiles cp ON cp.user_id = u.id
+         LEFT JOIN branches b ON b.id = d.branch_id
          WHERE d.id = $1`,
         [req.params.id]
       ));
@@ -340,7 +387,7 @@ router.get('/:id', authenticate, param('id').isUUID().withMessage('id must be a 
     if (!data) return res.status(404).json({ error: 'Demand not found' });
 
     const { items_raw, username, first_name, last_name, birthday, address, ...rest } = data;
-    const demand = req.user.role === 'worker'
+    const demand = (req.user.role === 'worker' || req.user.role === 'admin')
       ? { ...rest, username, first_name, last_name, birthday, address, items: mapItems(items_raw) }
       : { ...rest, items: mapItems(items_raw) };
 
@@ -360,6 +407,11 @@ router.get('/:id/ordonnance', authenticate, param('id').isUUID().withMessage('id
   try {
     let rows;
     if (req.user.role === 'worker') {
+      ({ rows } = await query(
+        `SELECT ordonnance_url FROM demands WHERE id = $1 AND branch_id = $2`,
+        [req.params.id, req.user.branch_id]
+      ));
+    } else if (req.user.role === 'admin') {
       ({ rows } = await query(`SELECT ordonnance_url FROM demands WHERE id = $1`, [req.params.id]));
     } else {
       ({ rows } = await query(
@@ -424,13 +476,19 @@ const processDemandValidation = [
     .isLength({ max: 1000 }).withMessage('notes must be 1000 characters or fewer'),
 ];
 
-router.put('/:id/process', authenticate, requireRole('worker'), processDemandValidation, validate, async (req, res) => {
+router.put('/:id/process', authenticate, requireRole('worker', 'admin'), processDemandValidation, validate, async (req, res) => {
   try {
     const { service_ids, notes } = req.body;
 
     const { rows: demandRows } = await query(`SELECT * FROM demands WHERE id = $1`, [req.params.id]);
     const demand = demandRows[0];
     if (!demand) return res.status(404).json({ error: 'Demand not found' });
+
+    // Same "don't reveal existence outside your branch" pattern as the
+    // nurse request mutation routes.
+    if (req.user.role === 'worker' && demand.branch_id !== req.user.branch_id) {
+      return res.status(404).json({ error: 'Demand not found' });
+    }
 
     if (!['pending','ocr_no_match'].includes(demand.status))
       return res.status(400).json({ error: 'Demand has already been processed' });

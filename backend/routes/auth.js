@@ -157,10 +157,15 @@ router.post('/worker/login', workerLoginValidation, validate, async (req, res) =
   try {
     const { username, password } = req.body;
 
+    // 'admin' accounts log in through this same endpoint — they're staff
+    // too, just with the all-branches flag. Role is no longer hardcoded
+    // below; it's whatever the row actually says, same as every other
+    // login path already does for its own role.
     const { rows } = await query(
-      `SELECT id, username, password, role
-       FROM users
-       WHERE username = $1 AND role = 'worker'`,
+      `SELECT u.id, u.username, u.password, u.role, u.branch_id, b.name AS branch_name
+       FROM users u
+       LEFT JOIN branches b ON b.id = u.branch_id
+       WHERE u.username = $1 AND u.role IN ('worker', 'admin')`,
       [username]
     );
     const user = rows[0];
@@ -172,23 +177,23 @@ router.post('/worker/login', workerLoginValidation, validate, async (req, res) =
     if (!match)
       return res.status(401).json({ error: 'Identifiants invalides' });
 
-    const payload = { id: user.id, username: user.username, role: 'worker' };
+    const payload = { id: user.id, username: user.username, role: user.role, branch_id: user.branch_id };
     const { accessToken, refreshToken } = await issueTokenPair(payload);
 
     posthog.identify({
       distinctId: user.id,
-      properties: { username: user.username, role: 'worker' },
+      properties: { username: user.username, role: user.role, branch_id: user.branch_id },
     });
     posthog.capture({
       distinctId: user.id,
       event: 'worker_logged_in',
-      properties: { username: user.username },
+      properties: { username: user.username, role: user.role },
     });
 
     res.json({
       accessToken,
       refreshToken,
-      user: { id: user.id, username: user.username, role: 'worker' },
+      user: { id: user.id, username: user.username, role: user.role, branch_id: user.branch_id, branch_name: user.branch_name },
     });
   } catch (err) {
     console.error('Worker login error:', err);
@@ -650,7 +655,7 @@ router.post('/oauth/exchange', oauthExchangeValidation, validate, async (req, re
 
     const { rows } = await query(
       `SELECT oec.id, oec.user_id, oec.expires_at, oec.used_at,
-              u.username, u.email, u.role
+              u.username, u.email, u.role, u.branch_id
        FROM oauth_exchange_codes oec
        JOIN users u ON u.id = oec.user_id
        WHERE oec.code_hash = $1`,
@@ -664,7 +669,7 @@ router.post('/oauth/exchange', oauthExchangeValidation, validate, async (req, re
 
     await query(`UPDATE oauth_exchange_codes SET used_at = NOW() WHERE id = $1`, [record.id]);
 
-    const payload = { id: record.user_id, username: record.username, role: record.role };
+    const payload = { id: record.user_id, username: record.username, role: record.role, branch_id: record.branch_id };
     const { accessToken, refreshToken } = await issueTokenPair(payload);
 
     res.json({
@@ -692,7 +697,7 @@ router.post('/refresh', refreshValidation, validate, async (req, res) => {
 
     const { rows } = await query(
       `SELECT rt.id, rt.user_id, rt.family_id, rt.expires_at, rt.revoked_at,
-              u.id AS u_id, u.username AS u_username, u.role AS u_role
+              u.id AS u_id, u.username AS u_username, u.role AS u_role, u.branch_id AS u_branch_id
        FROM refresh_tokens rt
        JOIN users u ON u.id = rt.user_id
        WHERE rt.token_hash = $1`,
@@ -725,7 +730,7 @@ router.post('/refresh', refreshValidation, validate, async (req, res) => {
     // ── Valid — rotate ────────────────────────────────────────────────────
     await query(`UPDATE refresh_tokens SET revoked_at = NOW() WHERE id = $1`, [stored.id]);
 
-    const payload = { id: stored.u_id, username: stored.u_username, role: stored.u_role };
+    const payload = { id: stored.u_id, username: stored.u_username, role: stored.u_role, branch_id: stored.u_branch_id };
 
     const { accessToken, refreshToken: newRefreshToken } =
       await issueTokenPair(payload, stored.family_id);
@@ -779,7 +784,10 @@ router.post('/logout', authenticate, async (req, res) => {
 router.get('/me', authenticate, async (req, res) => {
   try {
     const { rows: userRows } = await query(
-      `SELECT id, username, role, created_at FROM users WHERE id = $1`,
+      `SELECT u.id, u.username, u.role, u.created_at, u.branch_id, b.name AS branch_name
+       FROM users u
+       LEFT JOIN branches b ON b.id = u.branch_id
+       WHERE u.id = $1`,
       [req.user.id]
     );
     const user = userRows[0];

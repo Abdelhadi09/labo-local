@@ -1,9 +1,10 @@
 const express = require('express');
-const { body, param } = require('express-validator');
+const { body, param, query: queryValidator } = require('express-validator');
 const { query } = require('../config/database');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 const posthog = require('../config/posthog');
+const { assignBranch } = require('../services/branchAssignment');
 
 const router = express.Router();
 
@@ -28,12 +29,15 @@ const nurseRequestValidation = [
     .notEmpty().withMessage('Address is required')
     .isLength({ max: 500 }).withMessage('Address must be 500 characters or fewer'),
 
+  // A map pin is mandatory (see NurseRequestModal): the "use my saved
+  // profile address" option was removed because a text address alone
+  // doesn't guarantee coordinates, and branch assignment needs real ones.
   body('address_lat')
-    .optional({ nullable: true, checkFalsy: true })
+    .notEmpty().withMessage('La position sur la carte est requise')
     .isFloat({ min: -90, max: 90 }).withMessage('address_lat must be between -90 and 90'),
 
   body('address_lng')
-    .optional({ nullable: true, checkFalsy: true })
+    .notEmpty().withMessage('La position sur la carte est requise')
     .isFloat({ min: -180, max: 180 }).withMessage('address_lng must be between -180 and 180'),
 
   body('preferred_date')
@@ -98,37 +102,43 @@ router.post('/', authenticate, requireRole('client'), nurseRequestValidation, va
     if (existingRows[0])
       return res.status(409).json({ error: "Une demande d'infirmière existe déjà pour cette analyse" });
 
-    // If the client submitted coordinates (map-picker path), use those.
-    // Otherwise they used their saved profile address — pull its lat/lng so
-    // the request is still placeable on the worker's map instead of silently
-    // having no coordinates at all.
-    let finalLat = address_lat || null;
-    let finalLng = address_lng || null;
-    if (finalLat == null || finalLng == null) {
-      const { rows: profileRows } = await query(
-        `SELECT address_lat, address_lng FROM client_profiles WHERE user_id = $1`,
-        [req.user.id]
-      );
-      if (profileRows[0]) {
-        finalLat = profileRows[0].address_lat ?? finalLat;
-        finalLng = profileRows[0].address_lng ?? finalLng;
-      }
+    // Coordinates are guaranteed present now (mandatory map pin, enforced
+    // above) — no more falling back to a possibly-uncoordinated profile
+    // address. Resolve which branch handles this visit before writing the row.
+    const assignment = await assignBranch(address_lat, address_lng);
+    if (!assignment) {
+      // No active branches at all — a real operational problem, not a
+      // client error, so this is a 503 (service temporarily unavailable),
+      // not a 400.
+      console.error('Nurse request assignment failed: no active branches configured');
+      return res.status(503).json({ error: "Aucune agence disponible pour le moment. Veuillez réessayer plus tard." });
     }
 
     const { rows: inserted } = await query(
-      `INSERT INTO nurse_requests (demand_id, client_id, phone, address, address_lat, address_lng, preferred_date, preferred_slot)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO nurse_requests (demand_id, client_id, phone, address, address_lat, address_lng, preferred_date, preferred_slot, branch_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING id`,
-      [demand_id, req.user.id, phone, address, finalLat, finalLng, preferred_date, preferred_slot]
+      [demand_id, req.user.id, phone, address, address_lat, address_lng, preferred_date, preferred_slot, assignment.branchId]
     );
 
     posthog.capture({
       distinctId: req.user.id,
       event: 'nurse_visit_requested',
-      properties: { demand_id, nurse_request_id: inserted[0].id },
+      properties: {
+        demand_id,
+        nurse_request_id: inserted[0].id,
+        branch_id: assignment.branchId,
+        branch_name: assignment.branchName,
+        assignment_method: assignment.method, // 'ors' | 'haversine' — worth tracking how often the fallback fires
+        assignment_distance_km: assignment.distanceKm,
+      },
     });
 
-    res.status(201).json({ id: inserted[0].id, message: "Demande d'infirmière soumise avec succès" });
+    res.status(201).json({
+      id: inserted[0].id,
+      message: "Demande d'infirmière soumise avec succès",
+      branch: { id: assignment.branchId, name: assignment.branchName },
+    });
   } catch (err) {
     console.error('Nurse request error:', err);
     posthog.captureException(err, req.user?.id, { endpoint: '/api/nurse' });
@@ -150,14 +160,18 @@ router.get('/mine', authenticate, requireRole('client'), async (req, res) => {
     const { rows } = await query(
       demandIds.length > 0
         ? `SELECT nr.id, nr.demand_id, nr.status, nr.preferred_date, nr.preferred_slot,
-                  nr.cancelled_by, nr.cancelled_reason, n.name AS assigned_nurse_name
+                  nr.cancelled_by, nr.cancelled_reason, n.name AS assigned_nurse_name,
+                  b.name AS branch_name, b.address AS branch_address
            FROM nurse_requests nr
            LEFT JOIN nurses n ON n.id = nr.assigned_nurse_id
+           LEFT JOIN branches b ON b.id = nr.branch_id
            WHERE nr.client_id = $1 AND nr.demand_id = ANY($2::uuid[])`
         : `SELECT nr.id, nr.demand_id, nr.status, nr.preferred_date, nr.preferred_slot,
-                  nr.cancelled_by, nr.cancelled_reason, n.name AS assigned_nurse_name
+                  nr.cancelled_by, nr.cancelled_reason, n.name AS assigned_nurse_name,
+                  b.name AS branch_name, b.address AS branch_address
            FROM nurse_requests nr
            LEFT JOIN nurses n ON n.id = nr.assigned_nurse_id
+           LEFT JOIN branches b ON b.id = nr.branch_id
            WHERE nr.client_id = $1`,
       demandIds.length > 0 ? [req.user.id, demandIds] : [req.user.id]
     );
@@ -169,13 +183,26 @@ router.get('/mine', authenticate, requireRole('client'), async (req, res) => {
   }
 });
 
-// GET /api/nurse — worker sees nurse requests (paginated)
+// GET /api/nurse — worker sees nurse requests (paginated), scoped to their
+// own branch. Admin accounts (role === 'admin') see every branch — that's
+// the "all branches" overview from the design, implemented as skipping the
+// WHERE clause entirely rather than filtering by a branch they don't have.
 // Query params: page (1-based, default 1), limit (default 20, max 100)
-router.get('/', authenticate, requireRole('worker'), async (req, res) => {
+router.get('/', authenticate, requireRole('worker', 'admin'), [
+  queryValidator('branch_id').optional().isUUID().withMessage('branch_id must be a valid UUID'),
+], validate, async (req, res) => {
   try {
     const page  = Math.max(1, parseInt(req.query.page,  10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
     const offset = (page - 1) * limit;
+
+    const isAdmin = req.user.role === 'admin';
+    // Same pattern as demands.js: the query param only ever narrows an
+    // admin's all-branches view — a branch-scoped worker's own branch_id
+    // always wins, regardless of what's in the query string.
+    const effectiveBranchId = isAdmin ? (req.query.branch_id || null) : req.user.branch_id;
+    const branchClause = effectiveBranchId ? `WHERE nr.branch_id = $3` : '';
+    const params = effectiveBranchId ? [limit, offset, effectiveBranchId] : [limit, offset];
 
     // Same nesting depth as the original Supabase relational select:
     // nurse_requests -> demands -> demand_items -> analysis_services,
@@ -193,24 +220,32 @@ router.get('/', authenticate, requireRole('worker'), async (req, res) => {
          n.name              AS assigned_nurse_name,
          n.phone             AS assigned_nurse_phone,
          n.zone              AS assigned_nurse_zone,
+         b.name               AS branch_name,
          COALESCE(svc.analyses, ARRAY[]::text[]) AS analyses
        FROM nurse_requests nr
        JOIN demands d          ON d.id = nr.demand_id
        LEFT JOIN users u       ON u.id = d.client_id
        LEFT JOIN client_profiles cp ON cp.user_id = u.id
        LEFT JOIN nurses n      ON n.id = nr.assigned_nurse_id
+       LEFT JOIN branches b    ON b.id = nr.branch_id
        LEFT JOIN LATERAL (
          SELECT array_agg(asv.name) AS analyses
          FROM demand_items di
          JOIN analysis_services asv ON asv.id = di.service_id
          WHERE di.demand_id = d.id
        ) svc ON true
+       ${branchClause}
        ORDER BY nr.preferred_date ASC, nr.created_at DESC
        LIMIT $1 OFFSET $2`,
-      [limit, offset]
+      params
     );
 
-    const { rows: countRows } = await query(`SELECT COUNT(*)::int AS count FROM nurse_requests`);
+    const { rows: countRows } = await query(
+      effectiveBranchId
+        ? `SELECT COUNT(*)::int AS count FROM nurse_requests WHERE branch_id = $1`
+        : `SELECT COUNT(*)::int AS count FROM nurse_requests`,
+      effectiveBranchId ? [effectiveBranchId] : []
+    );
     const count = countRows[0].count;
 
     res.json({
@@ -240,16 +275,24 @@ const nurseStatusValidation = [
 
 const TERMINAL_STATUSES = ['done', 'cancelled', 'no_show'];
 
-router.put('/:id/status', authenticate, requireRole('worker'), nurseStatusValidation, validate, async (req, res) => {
+router.put('/:id/status', authenticate, requireRole('worker', 'admin'), nurseStatusValidation, validate, async (req, res) => {
   try {
     const { status, reason } = req.body;
 
     const { rows: currentRows } = await query(
-      `SELECT status, assigned_nurse_id FROM nurse_requests WHERE id = $1`,
+      `SELECT status, assigned_nurse_id, branch_id FROM nurse_requests WHERE id = $1`,
       [req.params.id]
     );
     const current = currentRows[0];
     if (!current) return res.status(404).json({ error: "Demande d'infirmière introuvable" });
+
+    // Branch-scoped workers only act on their own branch's requests. Admins
+    // (no branch_id, sees everything) skip this check entirely. 404 rather
+    // than 403 — same "don't reveal existence of things you can't see"
+    // pattern already used elsewhere (GET /:id/ordonnance in demands.js).
+    if (req.user.role === 'worker' && current.branch_id !== req.user.branch_id) {
+      return res.status(404).json({ error: "Demande d'infirmière introuvable" });
+    }
 
     // Dead end by design: once a visit is done, cancelled, or a no-show,
     // nothing reopens it — the client submits a fresh request instead.
@@ -342,10 +385,22 @@ const nurseAssignValidation = [
     .isBoolean().withMessage('force must be a boolean'), // explicit override past capacity
 ];
 
-router.put('/:id/assign', authenticate, requireRole('worker'), nurseAssignValidation, validate, async (req, res) => {
+router.put('/:id/assign', authenticate, requireRole('worker', 'admin'), nurseAssignValidation, validate, async (req, res) => {
   try {
     const nurseId = req.body.nurse_id || null;
     const force = req.body.force === true;
+
+    // Branch check first, before touching nurse capacity — a worker
+    // shouldn't be able to probe (or affect) another branch's request at
+    // all, regardless of what they're trying to do to it.
+    const { rows: reqRows } = await query(
+      `SELECT preferred_date, branch_id FROM nurse_requests WHERE id = $1`,
+      [req.params.id]
+    );
+    if (!reqRows[0]) return res.status(404).json({ error: "Demande d'infirmière introuvable" });
+    if (req.user.role === 'worker' && reqRows[0].branch_id !== req.user.branch_id) {
+      return res.status(404).json({ error: "Demande d'infirmière introuvable" });
+    }
 
     if (nurseId) {
       const { rows: nurseRows } = await query(
@@ -358,12 +413,11 @@ router.put('/:id/assign', authenticate, requireRole('worker'), nurseAssignValida
       // Capacity check: how many visits is this nurse already assigned on the
       // SAME preferred_date as the request being assigned (not "today" —
       // the day the visit will actually happen). Excludes the request itself
-      // in case it's a reassignment being confirmed again.
-      const { rows: reqRows } = await query(
-        `SELECT preferred_date FROM nurse_requests WHERE id = $1`,
-        [req.params.id]
-      );
-      if (!reqRows[0]) return res.status(404).json({ error: "Demande d'infirmière introuvable" });
+      // in case it's a reassignment being confirmed again. Deliberately
+      // NOT branch-filtered — nurses are shared across branches, so a
+      // nurse's capacity has to account for visits dispatched from any
+      // branch, or the same nurse could get double-booked across two
+      // branches without either one seeing it.
       const { preferred_date } = reqRows[0];
 
       const { rows: loadRows } = await query(
