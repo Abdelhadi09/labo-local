@@ -3,8 +3,9 @@ import Navbar from '../../components/Navbar';
 import StatusBadge from '../../components/StatusBadge';
 import Pagination from '../../components/Pagination';
 import { useIsMobile } from '../../hooks/useIsMobile';
+import { useAuth } from '../../contexts/AuthContext';
 import { normalize, matchesQuery, highlight } from '../../utils/search';
-import { demandsAPI, servicesAPI, nurseAPI } from '../../services/api';
+import { demandsAPI, servicesAPI, nurseAPI, branchesAPI } from '../../services/api';
 import {
   FileText, RefreshCw, CheckCircle, Clock,
   ChevronRight, X, DollarSign, Scan, PenLine,
@@ -19,6 +20,8 @@ import DemandCard from './components/DemandCard';
 import DemandModal from './components/DemandModal';
 import NurseTab from './components/NurseTab';
 import NurseFilterBar from './components/NurseFilterBar';
+import BranchSelect from './components/BranchSelect';
+import AnimatedList from '../../components/AnimatedList';
 
 /* ── Search helpers (accent-insensitive, keyword-aware) ── */
 
@@ -89,6 +92,21 @@ const NURSE_STATUS = {
 export default function WorkerDashboard() {
   const PAGE_LIMIT = 10;
 
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+
+ // Branch list: used for the admin-only "all branches" switcher, and also
+  // to plot lab locations on the nurse map for every worker (not just
+  // admins). Regular workers never see the switcher itself — their scoping
+  // is invisible, enforced server-side regardless of what (if anything) is
+  // sent to the API.
+  const [branches, setBranches] = useState([]);
+  const [selectedBranchId, setSelectedBranchId] = useState(null);
+
+  useEffect(() => {
+    branchesAPI.list().then(r => setBranches(r.data.data)).catch(() => {});
+  }, []);
+
   const [tab, setTab] = useState('all');
   const [demands, setDemands] = useState([]);
   const [demandsTotal, setDemandsTotal] = useState(0);
@@ -104,15 +122,48 @@ export default function WorkerDashboard() {
   // ── Shared filter state across all tabs ──
   const [nameFilter, setNameFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
+  const hasFilters = Boolean(nameFilter.trim() || dateFilter);
 
   // ── Nurse tab filter state (name, preferred date, status) ──
   const [nurseNameFilter, setNurseNameFilter] = useState('');
   const [nursePreferredDateFilter, setNursePreferredDateFilter] = useState('');
   const [nurseStatusFilter, setNurseStatusFilter] = useState('');
+  const hasNurseFilters = Boolean(nurseNameFilter.trim() || nursePreferredDateFilter || nurseStatusFilter);
+
+  // Server-side pagination only returns one page's worth of rows, but the
+  // name/date filters need to search across ALL of the worker's demands —
+  // not just whichever page happens to be loaded, or a match sitting on
+  // page 2 silently "disappears". So: filters active -> fetch every page
+  // (looping at the API's max limit of 100) into `demands` and paginate
+  // entirely client-side; filters cleared -> back to normal one-page-at-a-
+  // time server pagination.
+  const MAX_API_LIMIT = 100;
+
+  const loadAll = async (branchId = selectedBranchId) => {
+    setLoading(true);
+    try {
+      const first = await demandsAPI.list(1, MAX_API_LIMIT, branchId);
+      let all = first.data.data;
+      const total = first.data.total;
+      const pages = Math.ceil(total / MAX_API_LIMIT);
+      for (let p = 2; p <= pages; p++) {
+        const r = await demandsAPI.list(p, MAX_API_LIMIT, branchId);
+        all = all.concat(r.data.data);
+      }
+      setDemands(all);
+      setDemandsTotal(total);
+      setDemandsPage(1);
+    } catch {
+      // ignore — mirrors load()'s existing swallow-and-stop-spinner behavior
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const load = (page = demandsPage) => {
+    if (hasFilters) { loadAll(); return; }
     setLoading(true);
-    demandsAPI.list(page, PAGE_LIMIT)
+    demandsAPI.list(page, PAGE_LIMIT, selectedBranchId)
       .then(r => {
         setDemands(r.data.data);
         setDemandsTotal(r.data.total);
@@ -122,9 +173,31 @@ export default function WorkerDashboard() {
       .finally(() => setLoading(false));
   };
 
-  const loadNurse = (page = nursePage) => {
+  const loadAllNurse = async (branchId = selectedBranchId) => {
     setNurseLoading(true);
-    nurseAPI.list(page, PAGE_LIMIT)
+    try {
+      const first = await nurseAPI.list(1, MAX_API_LIMIT, branchId);
+      let all = first.data.data;
+      const total = first.data.total;
+      const pages = Math.ceil(total / MAX_API_LIMIT);
+      for (let p = 2; p <= pages; p++) {
+        const r = await nurseAPI.list(p, MAX_API_LIMIT, branchId);
+        all = all.concat(r.data.data);
+      }
+      setNurseRequests(all);
+      setNurseTotal(total);
+      setNursePage(1);
+    } catch {
+      // ignore — mirrors loadNurse()'s existing swallow-and-stop-spinner behavior
+    } finally {
+      setNurseLoading(false);
+    }
+  };
+
+  const loadNurse = (page = nursePage) => {
+    if (hasNurseFilters) { loadAllNurse(); return; }
+    setNurseLoading(true);
+    nurseAPI.list(page, PAGE_LIMIT, selectedBranchId)
       .then(r => {
         setNurseRequests(r.data.data);
         setNurseTotal(r.data.total);
@@ -134,8 +207,19 @@ export default function WorkerDashboard() {
       .finally(() => setNurseLoading(false));
   };
 
-  useEffect(() => { load(1); }, []);
   useEffect(() => { if (tab === 'nurse') loadNurse(1); }, [tab]);
+  // Admin switches branches — re-fetch whichever tab is currently visible
+  // from page 1, same as changing any other filter.
+  useEffect(() => {
+    if (!isAdmin) return;
+    if (tab === 'nurse') loadNurse(1); else load(1);
+  }, [selectedBranchId]);
+  // Filters turning on/off changes whether we need the full unpaginated
+  // dataset or just one page — re-fetch accordingly. (While filters stay
+  // on, we don't need to refetch on every keystroke: the fetched set
+  // already has everything, applyFilters() just narrows it client-side.)
+  useEffect(() => { load(1); }, [hasFilters]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (tab === 'nurse') loadNurse(1); }, [hasNurseFilters]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     document.body.style.overflow = selected ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
@@ -176,8 +260,6 @@ export default function WorkerDashboard() {
   const baseList        = tab === 'pending' ? pending : tab === 'processed' ? processed : demands;
   const filteredDemands = applyFilters(baseList, nameFilter, dateFilter);
   const filteredNurse   = applyNurseFilters(nurseRequests, nurseNameFilter, nursePreferredDateFilter, nurseStatusFilter);
-  const hasFilters      = nameFilter.trim() || dateFilter;
-  const hasNurseFilters = nurseNameFilter.trim() || nursePreferredDateFilter || nurseStatusFilter;
 
   const filterBarProps = { nameFilter, setNameFilter, dateFilter, setDateFilter, isMobile };
   const clearFilters   = () => { setNameFilter(''); setDateFilter(''); };
@@ -200,6 +282,15 @@ export default function WorkerDashboard() {
         {!isMobile && (
           <aside style={styles.sidebar}>
             <p style={styles.sidebarTitle}><FlaskConical size={14} color="var(--teal)" /> Technicien</p>
+            {isAdmin && (
+              <div style={{ ...styles.branchSwitcher, marginBottom: 12 }}>
+                <BranchSelect
+                  branches={branches}
+                  value={selectedBranchId}
+                  onChange={setSelectedBranchId}
+                />
+              </div>
+            )}
             <nav style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               {tabs.map(({ id, label, count, urgent, icon }) => (
                 <button key={id}
@@ -230,6 +321,15 @@ export default function WorkerDashboard() {
         )}
 
         <main style={{ flex: 1, minWidth: 0 }} className="page-enter">
+          {isMobile && isAdmin && (
+            <div style={{ ...styles.branchSwitcher, marginBottom: 14 }}>
+              <BranchSelect
+                branches={branches}
+                value={selectedBranchId}
+                onChange={setSelectedBranchId}
+              />
+            </div>
+          )}
           {tab !== 'nurse' && (
             <>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
@@ -267,11 +367,16 @@ export default function WorkerDashboard() {
                       {filteredDemands.length} résultat{filteredDemands.length > 1 ? 's' : ''} affiché{filteredDemands.length > 1 ? 's' : ''}
                     </p>
                   )}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {filteredDemands.map(d => (
-                      <DemandCard key={d.id} demand={d} onSelect={() => setSelected(d)} isMobile={isMobile} />
-                    ))}
-                  </div>
+                  <AnimatedList
+                    items={filteredDemands}
+                    getKey={d => d.id}
+                    ariaLabel="Toutes les demandes"
+                    itemClassName="worker-demand-list__item"
+                    onItemSelect={d => setSelected(d)}
+                    renderItem={d => (
+                      <DemandCard demand={d} onSelect={() => setSelected(d)} isMobile={isMobile} showBranch={isAdmin && !selectedBranchId} />
+                    )}
+                  />
                 </>
               )}
 
@@ -301,6 +406,8 @@ export default function WorkerDashboard() {
               hasFilters={hasNurseFilters}
               filterBarProps={nurseFilterBarProps}
               onClearFilters={clearNurseFilters}
+              showBranch={isAdmin && !selectedBranchId}
+              branches={branches}
             />
           )}
         </main>
@@ -348,6 +455,7 @@ const styles = {
   countBadge: { minWidth: 20, height: 20, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 700, color: 'white', padding: '0 5px' },
   statsBox: { marginTop: 16, padding: 12, background: 'var(--cream)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: 8 },
   statRow: { display: 'flex', justifyContent: 'space-between' },
+  branchSwitcher: { display: 'flex', alignItems: 'center', gap: 6, background: 'var(--cream)', borderRadius: 'var(--radius-md)', padding: '6px 10px', border: '1px solid var(--border)' },
   priceTag: { fontWeight: 700, fontSize: '0.84rem', color: 'var(--teal-dark)', background: 'rgba(10,147,150,0.08)', padding: '3px 8px', borderRadius: 20 },
   center: { display: 'flex', justifyContent: 'center', padding: 48 },
   empty: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '60px 24px', color: 'var(--text-muted)' },

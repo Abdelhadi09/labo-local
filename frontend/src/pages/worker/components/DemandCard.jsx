@@ -2,9 +2,9 @@ import React from 'react';
 import StatusBadge from '../../../components/StatusBadge';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { Scan, ListChecks, PenLine, ChevronRight } from 'lucide-react';
+import { Scan, ListChecks, PenLine, ChevronRight, Building2 } from 'lucide-react';
 
-export default function DemandCard({ demand: d, onSelect, isMobile }) {
+export default function DemandCard({ demand: d, onSelect, isMobile, showBranch = false }) {
   const needsAction = d.status === 'pending' || d.status === 'ocr_no_match';
   return (
     <div onClick={onSelect} style={{ background: 'white', borderRadius: 'var(--radius-md)', padding: isMobile ? '12px 14px' : '14px 18px', boxShadow: 'var(--shadow-sm)', cursor: 'pointer', borderLeft: `3px solid ${needsAction ? 'var(--coral)' : 'transparent'}`, display: 'flex', flexDirection: 'column', gap: 8, WebkitTapHighlightColor: 'transparent' }}>
@@ -17,8 +17,13 @@ export default function DemandCard({ demand: d, onSelect, isMobile }) {
             <p style={{ fontWeight: 600, fontSize: '0.88rem', margin: 0, color: 'var(--navy)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {d.first_name && d.last_name ? `${d.first_name} ${d.last_name}` : d.username}
             </p>
-            <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)', margin: 0 }}>
+            <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)', margin: 0, display: 'flex', alignItems: 'center', gap: 5 }}>
               {format(new Date(d.created_at), "dd MMM yyyy 'à' HH:mm", { locale: fr })}
+              {showBranch && d.branch_name && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: 'var(--teal-dark)', fontWeight: 600 }}>
+                  · <Building2 size={11} /> {d.branch_name}
+                </span>
+              )}
             </p>
           </div>
         </div>

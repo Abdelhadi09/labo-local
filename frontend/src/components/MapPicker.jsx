@@ -14,10 +14,14 @@ export default function MapPicker({ value, onChange }) {
 
     // Dynamically import leaflet
     import('leaflet').then((L) => {
-      const defaultLat = value?.lat || 35.6971;
-      const defaultLng = value?.lng || 0.6308; // Oran, Algeria
+const DEFAULT_CENTER = [36.53167, 2.99194]; // Bouinan
 
-      const map = L.map(mapRef.current).setView([defaultLat, defaultLng], 13);
+const center =
+  value?.lat && value?.lng
+    ? [value.lat, value.lng]
+    : DEFAULT_CENTER;
+
+const map = L.map(mapRef.current).setView(center, value ? 15 : 15);
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors',

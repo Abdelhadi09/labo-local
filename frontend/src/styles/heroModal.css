@@ -1,0 +1,179 @@
+/* Shared HeroUI-style modal shell, done in plain CSS — no @heroui/react
+   dependency. Mirrors heroui.com/docs/react/components/modal: blurred
+   backdrop, layered shadow, scale/fade entrance + exit animation, sticky
+   icon-circle header, rounded close button. Used by any modal in the app —
+   import once and reuse the .hero-modal-* classes. */
+
+.hero-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(13, 27, 42, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+  opacity: 0;
+  animation: heroModalBackdropIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.hero-modal-overlay[data-exiting='true'] {
+  animation: heroModalBackdropOut 0.18s cubic-bezier(0.7, 0, 0.84, 0) forwards;
+}
+
+.hero-modal-overlay--bottom {
+  align-items: flex-end;
+}
+
+@keyframes heroModalBackdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes heroModalBackdropOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.hero-modal-dialog {
+  background: var(--white, #fff);
+  overflow: hidden;
+  box-shadow:
+    0 25px 50px -12px rgba(13, 27, 42, 0.35),
+    0 0 0 1px rgba(13, 27, 42, 0.04);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 520px;
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  transform: scale(0.95) translateY(8px);
+  animation: heroModalDialogIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.hero-modal-dialog[data-exiting='true'] {
+  animation: heroModalDialogOut 0.2s cubic-bezier(0.7, 0, 0.84, 0) forwards;
+}
+
+@keyframes heroModalDialogIn {
+  from { opacity: 0; transform: scale(0.95) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes heroModalDialogOut {
+  from { opacity: 1; transform: scale(1) translateY(0); }
+  to { opacity: 0; transform: scale(0.97) translateY(4px); }
+}
+
+/* Mobile: bottom-sheet variant — slide up instead of scale */
+.hero-modal-dialog--sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  border-radius: 20px 20px 0 0;
+  max-height: 90dvh;
+  max-width: 100%;
+  transform: translateY(24px);
+  animation: heroModalSheetIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.hero-modal-dialog--sheet[data-exiting='true'] {
+  animation: heroModalSheetOut 0.2s cubic-bezier(0.7, 0, 0.84, 0) forwards;
+}
+
+@keyframes heroModalSheetIn {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes heroModalSheetOut {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(16px); }
+}
+
+.hero-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--white, #fff);
+  z-index: 1;
+}
+
+.hero-modal-header-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(10, 147, 150, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-bottom: 8px;
+}
+
+.hero-modal-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 6px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 36px;
+  min-height: 36px;
+  transition: background 0.15s ease, color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hero-modal-close:hover {
+  background: rgba(13, 27, 42, 0.06);
+  color: var(--navy);
+}
+
+.hero-modal-close:active {
+  background: rgba(13, 27, 42, 0.12);
+}
+
+.hero-modal-close:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+.hero-modal-body {
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.hero-modal-footer {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  border-top: 1px solid var(--border);
+  position: sticky;
+  bottom: 0;
+  background: var(--white, #fff);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-modal-overlay,
+  .hero-modal-dialog,
+  .hero-modal-dialog--sheet {
+    animation-duration: 0.01ms !important;
+  }
+}
