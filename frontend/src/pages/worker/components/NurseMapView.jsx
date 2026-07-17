@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useEffect, useRef, useMemo, useState } from 'react';
 import { MapPin } from 'lucide-react';
 
 // A fixed color palette cycled per assigned nurse, so requests going to the
@@ -19,14 +19,21 @@ function colorForNurse(nurseId, nurseIdList) {
 // plots that set. It only narrows further to what's actually plottable:
 // requests need coordinates. Status filtering (including cancelled/no-show)
 // is entirely the filter bar's job now.
-export default function NurseMapView({ requests, onSelectRequest }) {
+export default function NurseMapView({ requests, onSelectRequest, branches = [] }) {
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markersLayerRef = useRef(null);
+  const branchLayerRef = useRef(null);
+  const [mapReady, setMapReady] = useState(false);
 
   const geolocated = useMemo(
     () => requests.filter(r => r.address_lat != null && r.address_lng != null),
     [requests]
+  );
+
+  const geolocatedBranches = useMemo(
+    () => branches.filter(b => b.lat != null && b.lng != null && !(b.lat === 0 && b.lng === 0)),
+    [branches]
   );
 
   const nurseIdList = useMemo(
@@ -37,28 +44,51 @@ export default function NurseMapView({ requests, onSelectRequest }) {
   useEffect(() => {
     if (mapInstanceRef.current) return;
     import('leaflet').then((L) => {
-      const map = L.map(mapRef.current).setView([35.6971, 0.6308], 12); // Oran default, same as MapPicker
+      const map = L.map(mapRef.current).setView([36.53167, 2.99194], 12); // Bouinan default, same as MapPicker
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors',
       }).addTo(map);
       markersLayerRef.current = L.layerGroup().addTo(map);
+      branchLayerRef.current = L.layerGroup().addTo(map);
       mapInstanceRef.current = map;
+      setMapReady(true);
     });
     return () => {
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
+        setMapReady(false);
       }
     };
   }, []);
 
   useEffect(() => {
-    if (!mapInstanceRef.current || !markersLayerRef.current) return;
+    if (!mapReady || !branchLayerRef.current) return;
+    import('leaflet').then((L) => {
+      branchLayerRef.current.clearLayers();
+      geolocatedBranches.forEach(b => {
+        const icon = L.divIcon({
+          className: '',
+          html: `<div style="width:22px;height:22px;background:#0d1b2a;border:2px solid white;border-radius:6px;transform:rotate(45deg);box-shadow:0 1px 4px rgba(0,0,0,0.35);"></div>`,
+          iconSize: [22, 22],
+          iconAnchor: [11, 11],
+        });
+        const marker = L.marker([b.lat, b.lng], { icon, zIndexOffset: 1000 }).addTo(branchLayerRef.current);
+        marker.bindTooltip(
+          `<strong>${b.name}</strong><br/>${b.address || ''}`,
+          { direction: 'top' }
+        );
+      });
+    });
+  }, [geolocatedBranches, mapReady]);
+
+  useEffect(() => {
+    if (!mapReady || !markersLayerRef.current) return;
     import('leaflet').then((L) => {
       markersLayerRef.current.clearLayers();
-      if (geolocated.length === 0) return;
+      if (geolocated.length === 0 && geolocatedBranches.length === 0) return;
 
-      const bounds = [];
+      const bounds = geolocatedBranches.map(b => [b.lat, b.lng]);
       geolocated.forEach(r => {
         const color = colorForNurse(r.assigned_nurse_id, nurseIdList);
         const marker = L.circleMarker([r.address_lat, r.address_lng], {
@@ -84,7 +114,7 @@ export default function NurseMapView({ requests, onSelectRequest }) {
         mapInstanceRef.current.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
       }
     });
-  }, [geolocated, nurseIdList, onSelectRequest]);
+  }, [geolocated, nurseIdList, onSelectRequest, mapReady]);
 
   return (
     <div style={styles.container}>
@@ -94,14 +124,21 @@ export default function NurseMapView({ requests, onSelectRequest }) {
           <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
             {geolocated.length} visite{geolocated.length !== 1 ? 's' : ''} géolocalisée{geolocated.length !== 1 ? 's' : ''}
             {geolocated.length !== requests.length && ` (${requests.length - geolocated.length} sans coordonnées)`}
+            {geolocatedBranches.length > 0 && ` · ${geolocatedBranches.length} labo${geolocatedBranches.length !== 1 ? 's' : ''}`}
           </span>
         </div>
       </div>
 
       <div ref={mapRef} style={styles.map} />
 
-      {geolocated.length > 0 && nurseIdList.length > 0 && (
+      {(geolocated.length > 0 || geolocatedBranches.length > 0) && (
         <div style={styles.legend}>
+          {geolocatedBranches.length > 0 && (
+            <div style={styles.legendItem}>
+              <span style={{ ...styles.legendDot, borderRadius: 3, transform: 'rotate(45deg)', background: '#0d1b2a' }} />
+              Laboratoire
+            </div>
+          )}
           {nurseIdList.map(id => {
             const req = geolocated.find(r => r.assigned_nurse_id === id);
             return (
@@ -111,10 +148,12 @@ export default function NurseMapView({ requests, onSelectRequest }) {
               </div>
             );
           })}
-          <div style={styles.legendItem}>
-            <span style={{ ...styles.legendDot, background: UNASSIGNED_COLOR }} />
-            Non assignée
-          </div>
+          {geolocated.length > 0 && (
+            <div style={styles.legendItem}>
+              <span style={{ ...styles.legendDot, background: UNASSIGNED_COLOR }} />
+              Non assignée
+            </div>
+          )}
         </div>
       )}
     </div>

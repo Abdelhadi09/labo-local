@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Phone, MapPin, FlaskConical, CheckCircle, X, UserRound, Calendar, Map, List } from 'lucide-react';
+import { Phone, FlaskConical, X, UserRound, Calendar, Map, List, Building2, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { nurseAPI, nursesRosterAPI } from '../../../services/api';
 import NurseRosterManager from './NurseRosterManager';
+import NurseRequestDetailModal from './NurseRequestDetailModal';
 import NurseMapView from './NurseMapView';
 import NurseFilterBar from './NurseFilterBar';
+import Pagination from '../../../components/Pagination';
+import AnimatedList from '../../../components/AnimatedList';
 
 const NURSE_STATUS = {
   pending:   { label: 'En attente', color: '#92400e', bg: '#fef3c7', border: '#fcd34d' },
@@ -25,13 +28,14 @@ const styles = {
   },
 };
 
-export default function NurseTab({ requests, loading, onRefresh, isMobile, page, totalPages, total, limit, onPageChange, hasFilters, filterBarProps, onClearFilters }) {
+export default function NurseTab({ requests, loading, onRefresh, isMobile, page, totalPages, total, limit, onPageChange, hasFilters, filterBarProps, onClearFilters, showBranch = false }) {
   const [updatingId, setUpdatingId] = useState(null);
   const [assigningId, setAssigningId] = useState(null);
   const [nurses, setNurses] = useState([]);
   const [showRoster, setShowRoster] = useState(false);
   const [viewMode, setViewMode] = useState('list'); // 'list' | 'map'
   const [highlightedId, setHighlightedId] = useState(null);
+  const [selectedId, setSelectedId] = useState(null);
   const cardRefs = useRef({});
   const [loadByDate, setLoadByDate] = useState({}); // { 'YYYY-MM-DD': [{id, name, max_visits_per_day, morning_count, afternoon_count, total_count}] }
 
@@ -44,6 +48,7 @@ export default function NurseTab({ requests, loading, onRefresh, isMobile, page,
     [requests]
   );
   const displayedRequests = viewMode === 'map' ? geolocatedRequests : requests;
+  const selectedRequest = useMemo(() => requests.find(r => r.id === selectedId) || null, [requests, selectedId]);
 
   const loadNurses = () => {
     nursesRosterAPI.list().then(res => setNurses(res.data?.data || [])).catch(() => {});
@@ -150,6 +155,20 @@ export default function NurseTab({ requests, loading, onRefresh, isMobile, page,
         <NurseRosterManager onClose={() => setShowRoster(false)} onChange={loadNurses} />
       )}
 
+      {selectedRequest && (
+        <NurseRequestDetailModal
+          request={selectedRequest}
+          nurses={nurses}
+          loadByDate={loadByDate}
+          updatingId={updatingId}
+          assigningId={assigningId}
+          showBranch={showBranch}
+          onStatus={handleStatus}
+          onAssign={handleAssign}
+          onClose={() => setSelectedId(null)}
+        />
+      )}
+
       {filterBarProps && <NurseFilterBar {...filterBarProps} />}
 
       {viewMode === 'map' && !loading && (
@@ -192,15 +211,22 @@ export default function NurseTab({ requests, loading, onRefresh, isMobile, page,
               {displayedRequests.length} résultat{displayedRequests.length > 1 ? 's' : ''} affiché{displayedRequests.length > 1 ? 's' : ''}
             </p>
           )}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {displayedRequests.map(r => {
+          <AnimatedList
+            items={displayedRequests}
+            getKey={r => r.id}
+            ariaLabel="Demandes d'infirmière à domicile"
+            onItemSelect={r => setSelectedId(r.id)}
+            onItemRef={(r, index, node) => { cardRefs.current[r.id] = node; }}
+            renderItem={(r, index) => {
               const s = NURSE_STATUS[r.status] || NURSE_STATUS.pending;
+              const assignedNurseName = r.assigned_nurse_id
+                ? (nurses.find(n => n.id === r.assigned_nurse_id)?.name || r.assigned_nurse_name)
+                : null;
               return (
                 <div
-                  key={r.id}
-                  ref={el => { cardRefs.current[r.id] = el; }}
                   style={{
                     background: 'white', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden',
+                    cursor: 'pointer',
                     borderLeft: `4px solid ${
                       r.status === 'pending' ? 'var(--coral)' :
                       r.status === 'confirmed' ? 'var(--teal)' :
@@ -210,129 +236,65 @@ export default function NurseTab({ requests, loading, onRefresh, isMobile, page,
                     }`,
                     outline: highlightedId === r.id ? '3px solid var(--teal)' : 'none',
                     outlineOffset: 2,
-                    transition: 'outline 0.2s',
+                    transition: 'outline 0.2s, background 0.15s',
                   }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--cream)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'white'; }}
                 >
-                  <div style={{ padding: '14px 18px', display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 14 }}>
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                        <p style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem', color: 'var(--navy)' }}>
+                  <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <p style={{ margin: 0, fontWeight: 700, fontSize: '0.92rem', color: 'var(--navy)' }}>
                           {r.first_name && r.last_name ? `${r.first_name} ${r.last_name}` : r.username}
                         </p>
-                        <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 700, background: s.bg, color: s.color, border: `1px solid ${s.border}`, flexShrink: 0 }}>
+                        <span style={{ padding: '2px 9px', borderRadius: 20, fontSize: '0.7rem', fontWeight: 700, background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>
                           {s.label}
                         </span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.84rem', color: 'var(--text-muted)' }}>
-                        <Phone size={13} color="var(--teal)" />
-                        <a href={`tel:${r.phone}`} style={{ color: 'var(--teal)', fontWeight: 600 }}>{r.phone}</a>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: '0.84rem', color: 'var(--text-muted)' }}>
-                        <MapPin size={13} color="var(--teal)" style={{ flexShrink: 0, marginTop: 2 }} />
-                        <span>{r.address}</span>
-                      </div>
-                      {r.preferred_date && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.84rem', fontWeight: 600, color: 'var(--navy)' }}>
-                          <Calendar size={13} color="var(--teal)" style={{ flexShrink: 0 }} />
-                          <span>
-                            {format(new Date(r.preferred_date), 'dd MMM yyyy', { locale: fr })}
-                            {' · '}
-                            {r.preferred_slot === 'morning' ? 'Matin' : 'Après-midi'}
+                        {showBranch && r.branch_name && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: '0.72rem', fontWeight: 600, color: 'var(--teal-dark)' }}>
+                            <Building2 size={11} /> {r.branch_name}
                           </span>
-                        </div>
-                      )}
-                      {r.analyses?.length > 0 && (
-                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                          <FlaskConical size={13} color="var(--teal)" style={{ flexShrink: 0, marginTop: 2 }} />
-                          <span>{r.analyses.join(' · ')}</span>
-                        </div>
-                      )}
-                      <div style={{ display: 'flex', gap: 12, fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                        {r.demand_total && <span style={{ fontWeight: 600, color: 'var(--teal-dark)' }}>{Number(r.demand_total).toLocaleString('fr-DZ')} DA</span>}
-                        <span>{format(new Date(r.created_at), 'dd MMM yyyy HH:mm', { locale: fr })}</span>
+                        )}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                        <UserRound size={13} color="var(--teal)" style={{ flexShrink: 0 }} />
-                        <select
-                          value={r.assigned_nurse_id || ''}
-                          disabled={assigningId === r.id}
-                          onChange={e => handleAssign(r.id, e.target.value || null, r.preferred_date)}
-                          style={{
-                            fontSize: '0.8rem', padding: '4px 8px', borderRadius: 'var(--radius-sm)',
-                            border: '1px solid var(--border)', background: 'white', maxWidth: 240,
-                          }}
-                        >
-                          <option value="">— Assigner une infirmière —</option>
-                          {nurses.map(n => {
-                            const dayLoad = loadByDate[r.preferred_date]?.find(l => l.id === n.id);
-                            const count = dayLoad?.total_count ?? 0;
-                            const max = n.max_visits_per_day;
-                            const atOrOverCapacity = dayLoad && count >= max && n.id !== r.assigned_nurse_id;
-                            return (
-                              <option key={n.id} value={n.id}>
-                                {n.name}{n.zone ? ` (${n.zone})` : ''} — {count}/{max}{atOrOverCapacity ? ' ⚠ complet' : ''}
-                              </option>
-                            );
-                          })}
-                          {/* Keep a currently-assigned-but-now-inactive nurse selectable/visible */}
-                          {r.assigned_nurse_id && !nurses.some(n => n.id === r.assigned_nurse_id) && (
-                            <option value={r.assigned_nurse_id}>{r.assigned_nurse_name || 'Infirmière (inactive)'}</option>
-                          )}
-                        </select>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                        {r.preferred_date && (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <Calendar size={12} color="var(--teal)" />
+                            {format(new Date(r.preferred_date), 'dd MMM', { locale: fr })}
+                            {' · '}{r.preferred_slot === 'morning' ? 'Matin' : 'Après-midi'}
+                          </span>
+                        )}
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <UserRound size={12} color="var(--teal)" />
+                          {assignedNurseName || 'Non assignée'}
+                        </span>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', flexDirection: isMobile ? 'row' : 'column', gap: 8, flexShrink: 0, justifyContent: isMobile ? 'flex-end' : 'center', flexWrap: 'wrap' }}>
-                      {r.status === 'pending' && (
-                        <button
-                          className="btn btn-primary btn-sm"
-                          disabled={updatingId === r.id || !r.assigned_nurse_id}
-                          title={!r.assigned_nurse_id ? 'Assignez une infirmière avant de confirmer' : undefined}
-                          onClick={() => handleStatus(r.id, 'confirmed')}
-                        >
-                          {updatingId === r.id ? <span className="spinner" style={{ width: 14, height: 14 }} /> : <><CheckCircle size={13} /> Confirmer</>}
-                        </button>
-                      )}
-                      {r.status === 'confirmed' && (
-                        <button className="btn btn-sm" style={{ background: 'var(--navy)', color: 'white' }} disabled={updatingId === r.id} onClick={() => handleStatus(r.id, 'done')}>
-                          {updatingId === r.id ? <span className="spinner" style={{ width: 14, height: 14 }} /> : <><CheckCircle size={13} /> Marquer effectuée</>}
-                        </button>
-                      )}
-                      {r.status === 'confirmed' && (
-                        <button
-                          className="btn btn-sm"
-                          style={{ background: '#fef3c7', color: '#78350f', border: '1px solid #fbbf24' }}
-                          disabled={updatingId === r.id}
-                          onClick={() => handleStatus(r.id, 'no_show')}
-                        >
-                          <X size={13} /> Absence
-                        </button>
-                      )}
-                      {(r.status === 'pending' || r.status === 'confirmed') && (
-                        <button
-                          className="btn btn-sm"
-                          style={{ background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}
-                          disabled={updatingId === r.id}
-                          onClick={() => handleStatus(r.id, 'cancelled')}
-                        >
-                          <X size={13} /> Annuler
-                        </button>
-                      )}
-                      {r.status === 'done' && (
-                        <span style={{ fontSize: '0.8rem', color: 'var(--teal)', fontWeight: 600 }}>✓ Effectuée</span>
-                      )}
-                      {(r.status === 'cancelled' || r.status === 'no_show') && (
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: isMobile ? 'right' : 'left', maxWidth: 160 }}>
-                          {r.cancelled_by === 'client' ? 'Annulée par le client' : r.status === 'no_show' ? 'Absence constatée' : 'Annulée par le laboratoire'}
-                          {r.cancelled_reason && <div style={{ fontStyle: 'italic', marginTop: 2 }}>« {r.cancelled_reason} »</div>}
-                        </div>
-                      )}
-                    </div>
+                    <a
+                      href={`tel:${r.phone}`}
+                      onClick={e => e.stopPropagation()}
+                      title={r.phone}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, borderRadius: '50%', background: 'rgba(10,147,150,0.1)', color: 'var(--teal)', flexShrink: 0 }}
+                    >
+                      <Phone size={14} />
+                    </a>
+                    <ChevronRight size={16} color="var(--text-muted)" style={{ flexShrink: 0 }} />
                   </div>
                 </div>
               );
-            })}
-          </div>
+            }}
+          />
         </>
+      )}
+
+      {!hasFilters && totalPages > 1 && (
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          limit={limit}
+          onPageChange={onPageChange}
+        />
       )}
     </div>
   );

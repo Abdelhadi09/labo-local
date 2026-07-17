@@ -1,0 +1,158 @@
+/* HeroUI-style modal shell, done in plain CSS — no @heroui/react dependency.
+   Mirrors: blurred backdrop, layered shadow, scale/fade entrance + exit
+   animation, sticky icon-circle header, rounded close button. */
+
+.nrm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(13, 27, 42, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+  opacity: 0;
+  animation: nrmBackdropIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.nrm-overlay[data-exiting='true'] {
+  animation: nrmBackdropOut 0.18s cubic-bezier(0.7, 0, 0.84, 0) forwards;
+}
+
+.nrm-overlay--bottom {
+  align-items: flex-end;
+}
+
+@keyframes nrmBackdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes nrmBackdropOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.nrm-dialog {
+  background: var(--white, #fff);
+  overflow: hidden;
+  box-shadow:
+    0 25px 50px -12px rgba(13, 27, 42, 0.35),
+    0 0 0 1px rgba(13, 27, 42, 0.04);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 520px;
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  transform: scale(0.95) translateY(8px);
+  animation: nrmDialogIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.nrm-dialog[data-exiting='true'] {
+  animation: nrmDialogOut 0.2s cubic-bezier(0.7, 0, 0.84, 0) forwards;
+}
+
+@keyframes nrmDialogIn {
+  from { opacity: 0; transform: scale(0.95) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes nrmDialogOut {
+  from { opacity: 1; transform: scale(1) translateY(0); }
+  to { opacity: 0; transform: scale(0.97) translateY(4px); }
+}
+
+/* Mobile: bottom-sheet variant — slide up instead of scale */
+.nrm-dialog--sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  border-radius: 20px 20px 0 0;
+  max-height: 90dvh;
+  max-width: 100%;
+  transform: translateY(24px);
+  animation: nrmSheetIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.nrm-dialog--sheet[data-exiting='true'] {
+  animation: nrmSheetOut 0.2s cubic-bezier(0.7, 0, 0.84, 0) forwards;
+}
+
+@keyframes nrmSheetIn {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes nrmSheetOut {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(16px); }
+}
+
+.nrm-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--white, #fff);
+  z-index: 1;
+}
+
+.nrm-header-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(10, 147, 150, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-bottom: 8px;
+}
+
+.nrm-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 6px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 36px;
+  min-height: 36px;
+  transition: background 0.15s ease, color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.nrm-close:hover {
+  background: rgba(13, 27, 42, 0.06);
+  color: var(--navy);
+}
+
+.nrm-close:active {
+  background: rgba(13, 27, 42, 0.12);
+}
+
+.nrm-close:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nrm-overlay,
+  .nrm-dialog,
+  .nrm-dialog--sheet {
+    animation-duration: 0.01ms !important;
+  }
+}

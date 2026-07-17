@@ -1,0 +1,84 @@
+/* Vanilla port of React Bits' AnimatedList styling — themed to this app's
+   palette (cream/teal/navy) instead of the original's dark defaults, and
+   with the animation driven by a plain CSS transition + IntersectionObserver
+   class toggle rather than `motion`. */
+
+.animated-list {
+  position: relative;
+}
+
+.animated-list__scroll {
+  max-height: var(--animated-list-max-height, none);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0px;
+  outline: none;
+}
+
+.animated-list__scroll:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
+}
+
+.animated-list__scroll::-webkit-scrollbar {
+  width: 0px;
+}
+
+.animated-list__scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.animated-list__scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.animated-list__scroll--no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.animated-list__scroll--no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.animated-list__item {
+  opacity: 0;
+  transform: scale(0.94) translateY(6px);
+  transition: opacity 0.2s ease 0.05s, transform 0.2s ease 0.05s;
+}
+
+.animated-list__item--in-view {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+}
+
+.animated-list__top-gradient,
+.animated-list__bottom-gradient {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.animated-list__top-gradient {
+  top: 0;
+  height: 40px;
+  background: linear-gradient(to bottom, var(--cream), transparent);
+}
+
+.animated-list__bottom-gradient {
+  bottom: 0;
+  height: 60px;
+  background: linear-gradient(to top, var(--cream), transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animated-list__item {
+    transition-duration: 0.01ms;
+  }
+}

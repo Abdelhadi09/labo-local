@@ -1,0 +1,164 @@
+/* Shared HeroUI-style select shell, done in plain CSS — no @heroui/react
+   dependency. Mirrors heroui.com/docs/react/components/select ("With
+   Description" variant): trigger button with icon + value + chevron,
+   popover listbox where each item shows a label and a muted description
+   line underneath, checkmark on the selected item. Same approach as
+   heroModal.css — hand-rolled classes reused by any select in the app. */
+
+.hero-select {
+  position: relative;
+  display: inline-flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.hero-select__trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--font-body);
+  color: var(--navy);
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Primary variant: shadowed standalone trigger (default) */
+.hero-select--primary .hero-select__trigger {
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--white, #fff);
+  padding: 8px 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Secondary variant: no shadow, meant to sit inside an existing surface
+   like the branch-switcher pill in WorkerDashboard */
+.hero-select--secondary .hero-select__trigger {
+  padding: 0;
+}
+
+.hero-select__trigger:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.hero-select__trigger[data-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.hero-select__icon {
+  flex-shrink: 0;
+  color: var(--teal);
+}
+
+.hero-select__value {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hero-select__indicator {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform 0.18s ease;
+}
+
+.hero-select__indicator[data-open='true'] {
+  transform: rotate(180deg);
+}
+
+.hero-select__popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 6px;
+  
+  max-width: 300px;
+  
+  z-index: 9999;
+  background: var(--white, #fff);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  transform: scale(0.97) translateY(-4px);
+  animation: heroSelectPopoverIn 0.16s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes heroSelectPopoverIn {
+  from { opacity: 0; transform: scale(0.97) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.hero-select__listbox {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.hero-select__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.hero-select__item[data-active='true'] {
+  background: rgba(10, 147, 150, 0.08);
+}
+
+.hero-select__item[data-selected='true'] {
+  background: rgba(10, 147, 150, 0.12);
+}
+
+.hero-select__item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.hero-select__item-label {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--navy);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hero-select__item-description {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hero-select__item-indicator {
+  flex-shrink: 0;
+  color: var(--teal-dark);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-select__popover {
+    animation-duration: 0.01ms !important;
+  }
+}

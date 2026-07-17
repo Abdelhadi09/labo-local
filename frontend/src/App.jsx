@@ -22,7 +22,12 @@ const ProtectedRoute = ({ children, role }) => {
 
   if (loading) return <PageLoader />;
   if (!user) return <Navigate to="/login" replace />;
-  if (role && user.role !== role) return <Navigate to="/" replace />;
+  // Admins share the worker dashboard (with extra "all branches" controls),
+  // so the "worker" route must also accept role === 'admin'.
+  const allowed = role === 'worker'
+    ? (user.role === 'worker' || user.role === 'admin')
+    : !role || user.role === role;
+  if (!allowed) return <Navigate to="/" replace />;
 
   return children;
 };
@@ -53,7 +58,7 @@ const RootRedirect = () => {
     );
   }
 
-  return user.role === 'worker'
+  return (user.role === 'worker' || user.role === 'admin')
     ? <Navigate to="/worker" replace />
     : <Navigate to="/client" replace />;
 };

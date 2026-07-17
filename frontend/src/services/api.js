@@ -161,7 +161,11 @@ export const servicesAPI = {
 
 export const demandsAPI = {
   submit:  (formData) => api.post('/demands', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
-  list:    (page = 1, limit = 20) => api.get('/demands', { params: { page, limit } }),
+  // branchId: admin-only "narrow to one branch" filter. undefined/null means
+  // "all branches" for an admin, or is silently ignored for a regular
+  // worker (their own branch always wins server-side regardless).
+  list:    (page = 1, limit = 20, branchId = null) =>
+    api.get('/demands', { params: branchId ? { page, limit, branch_id: branchId } : { page, limit } }),
   get:     (id)       => api.get(`/demands/${id}`),
   process: (id, data) => api.put(`/demands/${id}/process`, data),
   // Ordonnance images are no longer publicly reachable under /storage — the
@@ -177,7 +181,8 @@ export const demandsAPI = {
 
 export const nurseAPI = {
   request:      (data)         => api.post('/nurse', data),
-  list:         (page = 1, limit = 20) => api.get('/nurse', { params: { page, limit } }),
+  list:         (page = 1, limit = 20, branchId = null) =>
+    api.get('/nurse', { params: branchId ? { page, limit, branch_id: branchId } : { page, limit } }),
   mine:         (demandIds = []) => api.get('/nurse/mine', { params: demandIds.length ? { demand_ids: demandIds.join(',') } : {} }),
   updateStatus: (id, status, reason = null) => api.put(`/nurse/${id}/status`, { status, reason }),
   assign:       (id, nurseId, force = false) => api.put(`/nurse/${id}/assign`, { nurse_id: nurseId, force }),
@@ -192,5 +197,13 @@ export const nursesRosterAPI = {
   setActive:   (id, isActive) => api.put(`/nurses/${id}/active`, { is_active: isActive }),
   load:        (date)        => api.get('/nurses/load', { params: { date } }),
 };
+
+// Admin's "all branches" switcher reads from here.
+
+export const branchesAPI = {
+  list: () => api.get('/branches'),
+  
+};
+
 
 export default api;

@@ -331,3 +331,182 @@ CREATE TABLE IF NOT EXISTS password_resets (
 );
 
 CREATE INDEX IF NOT EXISTS idx_password_resets_user_id ON password_resets(user_id);
+
+-- ============================================================================
+-- MULTI-BRANCH ASSIGNMENT (Phase 1a)
+--
+-- Adds the 5 physical selling points as first-class data. Nurse requests are
+-- assigned to a branch via OpenRouteService route distance at submission
+-- time (see backend/services/branchAssignment.js). Demands are hardcoded to
+-- Branch 1 for now — real ORS-based assignment for demands is Phase 1b.
+--
+-- Run this once against the app's Postgres database before deploying.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS "public"."branches" (
+    "id"          uuid DEFAULT gen_random_uuid() NOT NULL,
+    "name"        text NOT NULL,
+    "address"     text NOT NULL,
+    "lat"         double precision NOT NULL,
+    "lng"         double precision NOT NULL,
+    "is_active"   boolean DEFAULT true NOT NULL,
+    "created_at"  timestamp with time zone DEFAULT now() NOT NULL
+);
+
+ALTER TABLE ONLY "public"."branches"
+    ADD CONSTRAINT "branches_pkey" PRIMARY KEY ("id");
+
+ALTER TABLE ONLY "public"."branches"
+    ADD CONSTRAINT "branches_name_key" UNIQUE ("name");
+
+CREATE INDEX IF NOT EXISTS "idx_branches_is_active" ON "public"."branches" USING btree ("is_active");
+
+-- Workers/admins belong to a branch; clients don't (NULL).
+ALTER TABLE "public"."users"
+    ADD COLUMN IF NOT EXISTS "branch_id" uuid;
+
+ALTER TABLE ONLY "public"."users"
+    ADD CONSTRAINT "users_branch_id_fkey" FOREIGN KEY ("branch_id") REFERENCES "public"."branches"("id") ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS "idx_users_branch_id" ON "public"."users" USING btree ("branch_id");
+
+-- Requests carry the branch that's handling them.
+ALTER TABLE "public"."nurse_requests"
+    ADD COLUMN IF NOT EXISTS "branch_id" uuid;
+
+ALTER TABLE ONLY "public"."nurse_requests"
+    ADD CONSTRAINT "nurse_requests_branch_id_fkey" FOREIGN KEY ("branch_id") REFERENCES "public"."branches"("id");
+
+CREATE INDEX IF NOT EXISTS "idx_nurse_requests_branch_id" ON "public"."nurse_requests" USING btree ("branch_id");
+
+ALTER TABLE "public"."demands"
+    ADD COLUMN IF NOT EXISTS "branch_id" uuid;
+
+ALTER TABLE ONLY "public"."demands"
+    ADD CONSTRAINT "demands_branch_id_fkey" FOREIGN KEY ("branch_id") REFERENCES "public"."branches"("id");
+
+CREATE INDEX IF NOT EXISTS "idx_demands_branch_id" ON "public"."demands" USING btree ("branch_id");
+
+-- Append-only history of branch reassignments. Shared shape for both request
+-- types so Phase 1b (demand reassignment) needs no schema change later.
+CREATE TABLE IF NOT EXISTS "public"."branch_reassignments" (
+    "id"              uuid DEFAULT gen_random_uuid() NOT NULL,
+    "request_type"    text NOT NULL,
+    "request_id"      uuid NOT NULL,
+    "from_branch_id"  uuid,
+    "to_branch_id"    uuid NOT NULL,
+    "reassigned_by"   uuid NOT NULL,
+    "reason"          text,
+    "created_at"      timestamp with time zone DEFAULT now() NOT NULL
+);
+
+ALTER TABLE ONLY "public"."branch_reassignments"
+    ADD CONSTRAINT "branch_reassignments_pkey" PRIMARY KEY ("id");
+
+ALTER TABLE ONLY "public"."branch_reassignments"
+    ADD CONSTRAINT "branch_reassignments_request_type_check" CHECK ("request_type" IN ('nurse_request', 'demand'));
+
+ALTER TABLE ONLY "public"."branch_reassignments"
+    ADD CONSTRAINT "branch_reassignments_from_branch_id_fkey" FOREIGN KEY ("from_branch_id") REFERENCES "public"."branches"("id");
+
+ALTER TABLE ONLY "public"."branch_reassignments"
+    ADD CONSTRAINT "branch_reassignments_to_branch_id_fkey" FOREIGN KEY ("to_branch_id") REFERENCES "public"."branches"("id");
+
+ALTER TABLE ONLY "public"."branch_reassignments"
+    ADD CONSTRAINT "branch_reassignments_reassigned_by_fkey" FOREIGN KEY ("reassigned_by") REFERENCES "public"."users"("id");
+
+CREATE INDEX IF NOT EXISTS "idx_branch_reassignments_request" ON "public"."branch_reassignments" USING btree ("request_type", "request_id");
+
+-- ---------------------------------------------------------------------------
+-- Explicit default-branch flag. Originally this was going to be "whichever
+-- active branch has the oldest created_at", but that's not actually
+-- deterministic when branches are seeded in a single INSERT statement —
+-- now() is stable for the whole transaction, so every seeded row gets the
+-- identical timestamp and "oldest" becomes an arbitrary tiebreak. An
+-- explicit flag says what it means instead of relying on incidental
+-- timestamp precision, and it's admin-changeable later without touching
+-- any row's created_at.
+-- ---------------------------------------------------------------------------
+ALTER TABLE "public"."branches"
+    ADD COLUMN IF NOT EXISTS "is_default" boolean DEFAULT false NOT NULL;
+
+-- At most one default branch, enforced at the DB level rather than by
+-- application discipline alone.
+CREATE UNIQUE INDEX IF NOT EXISTS "idx_branches_single_default"
+    ON "public"."branches" ("is_default") WHERE "is_default" = true;
+
+-- ---------------------------------------------------------------------------
+-- Seed the 5 selling points. Placeholder names/addresses/coordinates —
+-- replace with your real branches before running against production data.
+-- Coordinates are lat/lng in decimal degrees (same convention as
+-- client_profiles.address_lat/lng and nurse_requests.address_lat/lng).
+-- ---------------------------------------------------------------------------
+INSERT INTO "public"."branches" ("name", "address", "lat", "lng") VALUES
+    ('Lab 1', 'REPLACE WITH REAL ADDRESS', 0.0, 0.0),
+    ('Lab 2', 'REPLACE WITH REAL ADDRESS', 0.0, 0.0),
+    ('Lab 3', 'REPLACE WITH REAL ADDRESS', 0.0, 0.0),
+    ('Lab 4', 'REPLACE WITH REAL ADDRESS', 0.0, 0.0),
+    ('Lab 5', 'REPLACE WITH REAL ADDRESS', 0.0, 0.0)
+ON CONFLICT ("name") DO NOTHING;
+
+-- Now that the rows actually exist, mark Lab 1 as the default — this MUST
+-- run after the INSERT above, or it matches zero rows and every branch is
+-- left with is_default = false, which would make getDefaultBranchId()
+-- return null and every demand submission fail with a 503.
+UPDATE "public"."branches" SET "is_default" = true WHERE "name" = 'Lab 1';
+
+-- ---------------------------------------------------------------------------
+-- Backfill: everything that already exists belongs to Branch 1 — the
+-- physical lab that was running before branches existed. Run this AFTER
+-- editing the seed values above so "Lab 1" really points at your real
+-- current location.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+    default_branch_id uuid;
+BEGIN
+    SELECT "id" INTO default_branch_id FROM "public"."branches" WHERE "name" = 'Lab 1' LIMIT 1;
+
+    UPDATE "public"."demands"        SET "branch_id" = default_branch_id WHERE "branch_id" IS NULL;
+    UPDATE "public"."nurse_requests" SET "branch_id" = default_branch_id WHERE "branch_id" IS NULL;
+    UPDATE "public"."users"          SET "branch_id" = default_branch_id WHERE "role" IN ('worker', 'admin') AND "branch_id" IS NULL;
+END $$;
+
+-- ---------------------------------------------------------------------------
+-- create_demand_with_items gains a branch_id parameter (Phase 1a: the
+-- caller in routes/demands.js always passes the oldest active branch's id
+-- for now — see getDefaultBranchId() in services/branchAssignment.js — and
+-- will pass a real ORS-assigned id in Phase 1b without this function
+-- needing to change again). Appended as a DEFAULT NULL param so this
+-- CREATE OR REPLACE is safe even if some other caller still invokes the
+-- 7-argument form.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION "public"."create_demand_with_items"(
+    "p_client_id" uuid,
+    "p_ordonnance_url" text,
+    "p_ordonnance_type" text,
+    "p_status" text,
+    "p_ocr_text" text,
+    "p_total_price" numeric,
+    "p_items" jsonb,
+    "p_idempotency_key" uuid DEFAULT NULL::uuid,
+    "p_branch_id" uuid DEFAULT NULL::uuid
+) RETURNS jsonb
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  v_demand_id UUID;
+BEGIN
+  INSERT INTO demands (client_id, ordonnance_url, ordonnance_type, status, ocr_text, total_price, idempotency_key, branch_id)
+  VALUES (p_client_id, p_ordonnance_url, p_ordonnance_type, p_status, p_ocr_text, p_total_price, p_idempotency_key, p_branch_id)
+  RETURNING id INTO v_demand_id;
+
+  INSERT INTO demand_items (demand_id, service_id, price)
+  SELECT v_demand_id, (item->>'service_id')::UUID, (item->>'price')::DECIMAL
+  FROM jsonb_array_elements(p_items) AS item;
+
+  RETURN jsonb_build_object('id', v_demand_id);
+EXCEPTION WHEN OTHERS THEN
+  RAISE EXCEPTION 'Failed to create demand: %', SQLERRM;
+END;
+$$;

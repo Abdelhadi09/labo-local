@@ -7,7 +7,13 @@ const { validate } = require('../middleware/validate');
 const router = express.Router();
 
 // Nurses are a lab-managed roster, not user accounts — every route here
-// is worker-only. There is no nurse-facing login or self-service.
+// is worker/admin-only. There is no nurse-facing login or self-service.
+// Deliberately NOT branch-scoped: nurses are shared across all branches
+// (see branchAssignment design) — any worker can see/manage the shared
+// roster to assign nurses to their own branch's requests. GET /load in
+// particular checks a nurse's capacity against ALL their visits regardless
+// of branch, since a nurse's day only has so many hours no matter which
+// branch dispatched them.
 
 const nurseValidation = [
   body('name')
@@ -31,7 +37,7 @@ const nurseValidation = [
 ];
 
 // GET /api/nurses — list roster (active by default; ?include_inactive=1 for all)
-router.get('/', authenticate, requireRole('worker'), async (req, res) => {
+router.get('/', authenticate, requireRole('worker', 'admin'), async (req, res) => {
   try {
     const includeInactive = req.query.include_inactive === '1';
     const { rows } = await query(
@@ -48,7 +54,7 @@ router.get('/', authenticate, requireRole('worker'), async (req, res) => {
 });
 
 // POST /api/nurses — add a nurse to the roster
-router.post('/', authenticate, requireRole('worker'), nurseValidation, validate, async (req, res) => {
+router.post('/', authenticate, requireRole('worker', 'admin'), nurseValidation, validate, async (req, res) => {
   try {
     const { name, phone, zone, max_visits_per_day } = req.body;
     const { rows } = await query(
@@ -65,7 +71,7 @@ router.post('/', authenticate, requireRole('worker'), nurseValidation, validate,
 });
 
 // PUT /api/nurses/:id — edit a nurse's info
-router.put('/:id', authenticate, requireRole('worker'), [param('id').isUUID(), ...nurseValidation], validate, async (req, res) => {
+router.put('/:id', authenticate, requireRole('worker', 'admin'), [param('id').isUUID(), ...nurseValidation], validate, async (req, res) => {
   try {
     const { name, phone, zone, max_visits_per_day } = req.body;
     const { rows } = await query(
@@ -84,7 +90,7 @@ router.put('/:id', authenticate, requireRole('worker'), [param('id').isUUID(), .
 // PUT /api/nurses/:id/active — activate/deactivate (soft-delete)
 // Deactivating keeps past nurse_requests assignments intact (FK is ON DELETE SET NULL,
 // but we never hard-delete a nurse row from this route, only flip is_active).
-router.put('/:id/active', authenticate, requireRole('worker'), [
+router.put('/:id/active', authenticate, requireRole('worker', 'admin'), [
   param('id').isUUID(),
   body('is_active').isBoolean().withMessage('is_active doit être un booléen'),
 ], validate, async (req, res) => {
@@ -105,7 +111,7 @@ router.put('/:id/active', authenticate, requireRole('worker'), [
 // nurse for that day. Counts requests already assigned (regardless of status,
 // since a pending-but-assigned visit still occupies that nurse's day) split by
 // slot. Used by the worker dashboard to warn before overloading someone.
-router.get('/load', authenticate, requireRole('worker'), [
+router.get('/load', authenticate, requireRole('worker', 'admin'), [
   queryParam('date').isISO8601().withMessage('date invalide'),
 ], validate, async (req, res) => {
   try {

@@ -10,7 +10,6 @@ export default function NurseRequestModal({ demand, onClose, onSuccess }) {
   const [phone, setPhone] = useState('');
   const [preferredDate, setPreferredDate] = useState('');
   const [preferredSlot, setPreferredSlot] = useState('');
-  const [useProfileAddress, setUseProfileAddress] = useState(true);
   const [mapAddress, setMapAddress] = useState(null);
   const [profileAddress, setProfileAddress] = useState('');
   const [loading, setLoading] = useState(false);
@@ -25,12 +24,24 @@ export default function NurseRequestModal({ demand, onClose, onSuccess }) {
   useEffect(() => {
     profileAPI.get().then(res => {
       if (res.data?.address) setProfileAddress(res.data.address);
+      // Convenience only: opens the map already centered/pinned at the
+      // client's saved address so most people don't have to hunt for their
+      // own street. They can still drag to a different spot — this doesn't
+      // bypass requiring an actual map interaction to have a value, since
+      // mapAddress is what submission reads from either way.
+      if (res.data?.address_lat && res.data?.address_lng) {
+        setMapAddress({
+          lat: res.data.address_lat,
+          lng: res.data.address_lng,
+          address: res.data.address || '',
+        });
+      }
     }).catch(() => {});
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = ''; };
   }, []);
 
-  const finalAddress = useProfileAddress ? profileAddress : mapAddress?.address;
+  const finalAddress = mapAddress?.address;
 
   // Mirrors the backend cutoff: same-day morning slot can't be booked past midday,
   // since fasting-test visits need lead time to staff for an early round.
@@ -45,7 +56,10 @@ export default function NurseRequestModal({ demand, onClose, onSuccess }) {
       setError("Trop tard pour réserver le créneau du matin aujourd'hui — choisissez demain ou l'après-midi");
       return;
     }
-    if (!finalAddress) { setError('Veuillez sélectionner une adresse'); return; }
+    if (!finalAddress || !mapAddress?.lat || !mapAddress?.lng) {
+      setError('Veuillez sélectionner votre adresse sur la carte');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
@@ -53,8 +67,8 @@ export default function NurseRequestModal({ demand, onClose, onSuccess }) {
         demand_id: demand.id,
         phone: phone.trim(),
         address: finalAddress,
-        address_lat: useProfileAddress ? null : mapAddress?.lat,
-        address_lng: useProfileAddress ? null : mapAddress?.lng,
+        address_lat: mapAddress.lat,
+        address_lng: mapAddress.lng,
         preferred_date: preferredDate,
         preferred_slot: preferredSlot,
       });
@@ -235,40 +249,22 @@ export default function NurseRequestModal({ demand, onClose, onSuccess }) {
                 <MapPin size={20} color="var(--teal)" />
               </div>
               <h4 style={styles.stepTitle}>Adresse de visite</h4>
-              <p style={styles.stepHint}>Où souhaitez-vous recevoir l'infirmière ?</p>
+              <p style={styles.stepHint}>
+                Cliquez sur la carte pour indiquer où l'infirmière doit se rendre — cela permet aussi de vous orienter vers l'agence la plus proche.
+              </p>
 
-              <div style={{ ...styles.addressToggle, flexDirection: isMobile ? 'column' : 'row' }}>
-                <button
-                  style={{ ...styles.toggleBtn, ...(useProfileAddress ? styles.toggleActive : {}), width: isMobile ? '100%' : 'auto' }}
-                  onClick={() => setUseProfileAddress(true)}
-                >
-                  <User size={14} /> Mon adresse de profil
-                </button>
-                <button
-                  style={{ ...styles.toggleBtn, ...(!useProfileAddress ? styles.toggleActive : {}), width: isMobile ? '100%' : 'auto' }}
-                  onClick={() => setUseProfileAddress(false)}
-                >
-                  <MapPin size={14} /> Choisir sur la carte
-                </button>
-              </div>
-
-              {useProfileAddress ? (
-                profileAddress ? (
-                  <div style={styles.profileAddrBox}>
-                    <MapPin size={14} color="var(--teal)" style={{ flexShrink: 0, marginTop: 2 }} />
-                    <span style={{ fontSize: '0.85rem' }}>{profileAddress}</span>
-                  </div>
-                ) : (
-                  <div className="alert alert-warning" style={{ marginTop: 10 }}>
-                    <AlertCircle size={13} style={{ flexShrink: 0 }} />
-                    Aucune adresse dans votre profil. Choisissez une adresse sur la carte.
-                  </div>
-                )
-              ) : (
-                <div style={{ marginTop: 12 }}>
-                  <MapPicker value={mapAddress} onChange={setMapAddress} />
+              {profileAddress && (
+                <div style={styles.profileAddrBox}>
+                  <User size={14} color="var(--teal)" style={{ flexShrink: 0, marginTop: 2 }} />
+                  <span style={{ fontSize: '0.85rem' }}>
+                    Carte pré-positionnée sur votre adresse de profil : {profileAddress}. Ajustez si besoin.
+                  </span>
                 </div>
               )}
+
+              <div style={{ marginTop: 12 }}>
+                <MapPicker value={mapAddress} onChange={setMapAddress} />
+              </div>
             </div>
           </Step>
 
@@ -338,7 +334,6 @@ const styles = {
     fontWeight: 700, fontSize: '0.85rem', color: 'var(--teal-dark)',
     background: 'rgba(10,147,150,0.08)', padding: '3px 10px', borderRadius: 20,
   },
-  addressToggle: { display: 'flex', gap: 8, marginTop: 10 },
   toggleBtn: {
     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
     padding: '10px 14px', borderRadius: 'var(--radius-sm)',

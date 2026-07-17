@@ -1,15 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { nursesRosterAPI } from '../../../services/api';
 import { X, Plus, UserRound, Phone, MapPin, AlertCircle, Users, ListChecks } from 'lucide-react';
+import '../../../styles/heroModal.css';
 
 // Simple CRUD panel for the nurse roster. Nurses have no login here — this
 // is purely a list the worker maintains so requests can be assigned to a
 // real person instead of just a "confirmed" status with nobody behind it.
 //
-// Visually mirrors NurseRequestModal (same portal/bottom-sheet shell, same
-// icon-circle + title + hint section pattern, same toggle-pill and
-// info-box styles) but as one flowing form — no Stepper.
+// Modal shell styled to match HeroUI's Modal (heroui.com/docs/react/components/modal)
+// using plain CSS only — blurred backdrop, layered shadow, scale/fade
+// entrance + exit animation, sticky icon-circle header — see
+// NurseRosterManager.css. No @heroui/react dependency; ESC-to-close and
+// backdrop-click-to-close are hand-rolled below to match HeroUI's behavior.
+const EXIT_DURATION = 200; // ms — must match the CSS exit animation duration
+
 export default function NurseRosterManager({ onClose, onChange }) {
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [nurses, setNurses] = useState([]);
@@ -18,6 +23,12 @@ export default function NurseRosterManager({ onClose, onChange }) {
   const [form, setForm] = useState({ name: '', phone: '', zone: '', max_visits_per_day: 6 });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [isExiting, setIsExiting] = useState(false);
+
+  const requestClose = useCallback(() => {
+    setIsExiting(true);
+    setTimeout(() => onClose?.(), EXIT_DURATION);
+  }, [onClose]);
 
   useEffect(() => {
     const fn = () => setIsMobile(window.innerWidth <= 768);
@@ -29,6 +40,13 @@ export default function NurseRosterManager({ onClose, onChange }) {
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = ''; };
   }, []);
+
+  // ESC to dismiss — mirrors HeroUI's default isKeyboardDismissDisabled={false}
+  useEffect(() => {
+    const onKeyDown = e => { if (e.key === 'Escape') requestClose(); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [requestClose]);
 
   const load = async (includeInactive = showInactive) => {
     setLoading(true);
@@ -91,31 +109,33 @@ export default function NurseRosterManager({ onClose, onChange }) {
   };
 
   const modalContent = (
-    <div style={styles.overlay}>
+    <div
+      className={`hero-modal-overlay${isMobile ? ' hero-modal-overlay--bottom' : ''}`}
+      data-exiting={isExiting}
+      onMouseDown={e => { if (e.target === e.currentTarget) requestClose(); }}
+    >
       <div
-        style={{
-          ...styles.modal,
-          position: isMobile ? 'fixed' : 'relative',
-          bottom: isMobile ? 0 : 'auto',
-          left: isMobile ? 0 : 'auto',
-          right: isMobile ? 0 : 'auto',
-          borderRadius: isMobile ? '20px 20px 0 0' : 'var(--radius-lg)',
-          maxHeight: isMobile ? '90dvh' : '92vh',
-          width: '100%',
-          maxWidth: isMobile ? '100%' : 520,
-        }}
+        className={`hero-modal-dialog${isMobile ? ' hero-modal-dialog--sheet' : ''}`}
+        data-exiting={isExiting}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="nrm-heading"
+        style={{ maxWidth: isMobile ? '100%' : 520 }}
       >
-        {/* Header — same shape as NurseRequestModal's */}
-        <div style={styles.header}>
+        {/* Header — icon-circle + heading, sticky, mirrors Modal.Header/Modal.Icon */}
+        <div className="hero-modal-header">
           <div>
-            <h3 style={{ margin: 0, fontSize: isMobile ? '0.98rem' : '1.05rem' }}>
+            <div className="hero-modal-header-icon">
+              <Users size={20} color="var(--teal)" />
+            </div>
+            <h3 id="nrm-heading" style={{ margin: 0, fontSize: isMobile ? '0.98rem' : '1.05rem' }}>
               Gérer les infirmières
             </h3>
             <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 3 }}>
               Ajoutez ou désactivez les infirmières disponibles pour les visites
             </p>
           </div>
-          <button style={styles.closeBtn} onClick={onClose}><X size={18} /></button>
+          <button className="hero-modal-close" onClick={requestClose} aria-label="Fermer"><X size={18} /></button>
         </div>
 
         {error && (
@@ -265,28 +285,6 @@ export default function NurseRosterManager({ onClose, onChange }) {
 }
 
 const styles = {
-  overlay: {
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    zIndex: 1000, padding: 16,
-  },
-  modal: {
-    background: 'white', overflow: 'auto', boxShadow: 'var(--shadow-lg)',
-    maxHeight: '90dvh',
-    borderRadius: 'var(--radius-lg)', width: '100%', maxWidth: 520,
-    display: 'flex', flexDirection: 'column',
-  },
-  header: {
-    display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
-    padding: '14px 16px', borderBottom: '1px solid var(--border)',
-    position: 'sticky', top: 0, background: 'white', zIndex: 1, gap: 12,
-  },
-  closeBtn: {
-    background: 'none', border: 'none', cursor: 'pointer',
-    color: 'var(--text-muted)', padding: 6, borderRadius: 4,
-    display: 'flex', alignItems: 'center', flexShrink: 0,
-    minWidth: 44, minHeight: 44, justifyContent: 'center',
-  },
   scrollBody: {
     padding: '14px 16px 20px', overflowY: 'auto',
   },
