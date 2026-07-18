@@ -4,6 +4,7 @@ import ProfileForm from '../../components/ProfileForm';
 import OrdonnanceUpload from '../../components/OrdonnanceUpload';
 import StatusBadge from '../../components/StatusBadge';
 import NurseRequestModal from '../../components/NurseRequestModal';
+import AnimatedList from '../../components/AnimatedList';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { demandsAPI, profileAPI, nurseAPI } from '../../services/api';
 import { LayoutDashboard, User, Upload, FileText, RefreshCw, DollarSign, FlaskConical, Stethoscope } from 'lucide-react';
@@ -11,9 +12,9 @@ import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
 function typeLabel(type) {
-  if (type === 'ocr') return '🖨️ Imprimée';
-  if (type === 'manual') return '📋 Manuelle';
-  return '✍️ Manuscrite';
+  if (type === 'ocr') return ' Imprimée';
+  if (type === 'manual') return ' Manuelle';
+  return ' Manuscrite';
 }
 
 function isProcessed(status) {
@@ -148,7 +149,7 @@ const activeIndex = tabs.findIndex(t => t.id === tab);
             </div>
           )}
 
-          {tab === 'history' && hasProfile && <HistoryTab isMobile={isMobile} />}
+          {tab === 'history' && hasProfile && <HistoryTab />}
 
           {tab === 'profile' && (
             <div className="card">
@@ -284,7 +285,7 @@ function DashboardTab({ setTab, isMobile }) {
   );
 }
 
-function HistoryTab({ isMobile }) {
+function HistoryTab() {
   const [demands, setDemands] = useState([]);
   const [loading, setLoading] = useState(true);
   const [nurseModal, setNurseModal] = useState(null); // demand object
@@ -360,7 +361,7 @@ function HistoryTab({ isMobile }) {
         </div>
       )}
 
-      <div className="card">
+      <div className="cardd">
         <div className="card-header">
           <h2 style={{ margin: 0, fontSize: '1.2rem' }}>Mes demandes</h2>
           <button className="btn btn-secondary btn-sm" onClick={load}><RefreshCw size={13} /> Actualiser</button>
@@ -370,68 +371,26 @@ function HistoryTab({ isMobile }) {
           <div style={styles.center}><div className="spinner spinner-dark" /></div>
         ) : demands.length === 0 ? (
           <div style={styles.empty}><FileText size={28} color="var(--text-muted)" /><p>Aucune demande soumise</p></div>
-        ) : isMobile ? (
-          <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {demands.map(d => (
-              <MobileDemandCard key={d.id} d={d} showLink
+        ) : (
+          <AnimatedList
+            items={demands}
+            getKey={d => d.id}
+            ariaLabel="Mes demandes"
+            itemClassName="client-demand-list__item"
+            renderItem={d => (
+              <MobileDemandCard d={d} showLink
                 showNurse={isProcessed(d.status)}
                 nurseRequest={nurseRequests[d.id]}
                 onNurse={() => setNurseModal(d)}
                 onCancelNurse={handleCancelNurse}
                 cancellingNurse={cancellingId === nurseRequests[d.id]?.id}
               />
-            ))}
-          </div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={styles.table}>
-              <thead>
-                <tr>{['Date','Type','Statut','Analyses','Prix total','Fichier','Infirmière'].map(h =>
-                  <th key={h} style={styles.th}>{h}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {demands.map(d => (
-                  
-                  
-                  <tr key={d.id} style={styles.tr}>
-                    <td style={styles.td}>{format(new Date(d.created_at), 'dd/MM/yyyy HH:mm')}</td>
-                    <td style={styles.td}>{typeLabel(d.ordonnance_type)}</td>
-                    <td style={styles.td}><StatusBadge status={d.status} /></td>
-                    <td style={styles.td}>
-                      {d.items?.length > 0
-                        ? <span style={{ fontSize: '0.82rem' }}>{d.items.map(i => i.name).join(', ')}</span>
-                        : <span style={{ color: 'var(--text-muted)' }}>—</span>}
-                    </td>
-                    <td style={styles.td}>
-                      {d.total_price
-                        ? <strong style={{ color: 'var(--teal-dark)' }}>{Number(d.total_price).toLocaleString('fr-DZ')} DA</strong>
-                        : <span style={{ color: 'var(--text-muted)' }}>En attente…</span>}
-                    </td>
-                    <td style={styles.td}>
-                      {d.ordonnance_url && d.ordonnance_url !== 'manual'
-                        ? <OrdonnanceLink demandId={d.id} className="btn btn-secondary btn-sm">Voir</OrdonnanceLink>
-                        : <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>—</span>}
-                    </td>
-                    <td style={styles.td}>
-                      <NurseCell
-                        demand={d}
-                        nurseRequest={nurseRequests[d.id]}
-                        onRequest={() => setNurseModal(d)}
-                        onCancel={handleCancelNurse}
-                        cancelling={cancellingId === nurseRequests[d.id]?.id}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+            )}
+          />
         )}
       </div>
 
       {nurseModal && (
-       
         <NurseRequestModal
           demand={nurseModal}
           onClose={() => setNurseModal(null)}
@@ -445,32 +404,36 @@ function HistoryTab({ isMobile }) {
 function MobileDemandCard({ d, showLink, showNurse, nurseRequest, onNurse, onCancelNurse, cancellingNurse }) {
   return (
     <div style={{
-      background: 'var(--cream)', borderRadius: 'var(--radius-md)', padding: '12px 14px',
+      background: 'white', borderRadius: 'var(--radius-md)', padding: '12px 14px',
       borderLeft: `3px solid ${d.status === 'pending' ? 'var(--gold)' : 'var(--teal)'}`,
-      display: 'flex', flexDirection: 'column', gap: 6,
+      display: 'flex', flexDirection: 'column', gap: 6, boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
         <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
           {format(new Date(d.created_at), 'dd MMM yyyy', { locale: fr })}
         </span>
+         <span style={{ fontSize: '0.85rem' , fontWeight: 600 , marginLeft: 6 }}>{typeLabel(d.ordonnance_type)}</span>
+        </div>
         <StatusBadge status={d.status} />
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: '0.85rem' }}>{typeLabel(d.ordonnance_type)}</span>
-        {d.total_price
-          ? <strong style={{ color: 'var(--teal-dark)', fontSize: '0.92rem' }}>{Number(d.total_price).toLocaleString('fr-DZ')} DA</strong>
-          : <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Prix en attente…</span>}
-      </div>
-      {d.items?.length > 0 && (
-        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>
+        {d.items?.length > 0 && (
+        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 , width: '60%' }}>
           {d.items.map(i => i.name).join(' · ')}
         </p>
       )}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2, alignItems: 'center' }}>
+        {d.total_price
+          ? <strong style={{ color: 'var(--teal-dark)', fontSize: '0.92rem' }}>{Number(d.total_price).toLocaleString('fr-DZ')} DA</strong>
+          : <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Prix en attente…</span>}
+          
+      </div>
+     
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2, alignItems: 'center' , justifyContent: 'space-between'}}>
         {showLink && d.ordonnance_url && d.ordonnance_url !== 'manual' && (
           <OrdonnanceLink demandId={d.id}
             style={{ fontSize: '0.8rem', color: 'var(--teal)', fontWeight: 600 }}>
-            Voir l'ordonnance →
+            Voir l'ordonnance 
           </OrdonnanceLink>
         )}
         {showNurse && (
@@ -494,7 +457,7 @@ const NURSE_REQUEST_LABELS = {
   pending:   { text: 'En attente de confirmation', color: '#92400e' },
   confirmed: { text: 'Confirmée', color: '#065f46' },
   done:      { text: 'Effectuée', color: '#1e40af' },
-  cancelled: { text: 'Annulée', color: '#991b1b' },
+  cancelled: { text: 'Demande annulée', color: '#991b1b' },
   no_show:   { text: 'Absence constatée', color: '#78350f' },
 };
 
@@ -517,9 +480,10 @@ function NurseCell({ demand, nurseRequest, onRequest, onCancel, cancelling }) {
   const canCancel = ['pending', 'confirmed'].includes(nurseRequest.status);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+    <div style={{ display: 'flex', flexDirection: 'row', gap: 3 , justifyContent: 'space-between', alignItems: 'center', width: '100%'}}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' ,flexDirection: 'column'}}>
       <span style={{ fontSize: '0.78rem', fontWeight: 600, color: info.color }}>
-        🩺 {info.text}
+        {info.text}
         {nurseRequest.status === 'confirmed' && nurseRequest.assigned_nurse_name && ` · ${nurseRequest.assigned_nurse_name}`}
       </span>
       {nurseRequest.preferred_date && ['pending', 'confirmed'].includes(nurseRequest.status) && (
@@ -528,19 +492,22 @@ function NurseCell({ demand, nurseRequest, onRequest, onCancel, cancelling }) {
           {' · '}{nurseRequest.preferred_slot === 'morning' ? 'Matin' : 'Après-midi'}
         </span>
       )}
+      </div>
+      <div>
       {canCancel && (
         <button
           onClick={() => onCancel(nurseRequest.id, demand.id)}
           disabled={cancelling}
           style={{
-            fontSize: '0.72rem', color: 'var(--coral)', background: 'none', border: 'none',
-            padding: 0, textAlign: 'left', cursor: 'pointer', textDecoration: 'underline',
+            fontSize: '0.72rem', color: 'white', background: 'var(--coral)', border: 'var(--coral-light)', borderRadius: 16,
+            padding: '6px 10px', textAlign: 'left', cursor: 'pointer', 
             fontFamily: 'var(--font-body)', width: 'fit-content',
           }}
         >
           {cancelling ? 'Annulation…' : 'Annuler'}
         </button>
       )}
+      </div>
     </div>
   );
 }

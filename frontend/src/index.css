@@ -16,6 +16,7 @@
   --cream-dark: #ede8e0;
   --gold: #e9c46a;
   --coral: #e76f51;
+  --coral-light: #e78a73;
   --white: #ffffff;
   --text-dark: #1a1a2e;
   --text-muted: #6b7280;
@@ -149,7 +150,7 @@ input::placeholder, textarea::placeholder { color: #b0b8c1; }
 
 .card-header {
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
+  /* border-bottom: 1px solid var(--border); */
   display: flex;
   align-items: center;
   justify-content: space-between;
