@@ -131,9 +131,7 @@ export default function NurseRosterManager({ onClose, onChange }) {
             <h3 id="nrm-heading" style={{ margin: 0, fontSize: isMobile ? '0.98rem' : '1.05rem' }}>
               Gérer les infirmières
             </h3>
-            <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 3 }}>
-              Ajoutez ou désactivez les infirmières disponibles pour les visites
-            </p>
+            
           </div>
           <button className="hero-modal-close" onClick={requestClose} aria-label="Fermer"><X size={18} /></button>
         </div>
@@ -161,7 +159,7 @@ export default function NurseRosterManager({ onClose, onChange }) {
                 placeholder="Ex: Amina B."
                 value={form.name}
                 onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                style={{ fontSize: '16px' }}
+                style={{padding: '6px 8px', fontSize: '16px'}}
               />
             </div>
             <div className="form-group" style={{ marginTop: 2 }}>
@@ -171,7 +169,7 @@ export default function NurseRosterManager({ onClose, onChange }) {
                 placeholder="Ex: 0555 123 456"
                 value={form.phone}
                 onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                style={{ fontSize: '16px' }}
+                style={{padding: '6px 8px', fontSize: '16px'}}
               />
             </div>
             {/* <div className="form-group" style={{ marginTop: 10 }}>
@@ -180,7 +178,7 @@ export default function NurseRosterManager({ onClose, onChange }) {
                 placeholder="Ex: Tipaza / Kolea"
                 value={form.zone}
                 onChange={e => setForm(f => ({ ...f, zone: e.target.value }))}
-                style={{ fontSize: '16px' }}
+                style={{ padding: '6px 8px', fontSize: '16px' }}
               />
             </div> */}
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 2, alignItems: 'flex-end' }}>
@@ -192,7 +190,7 @@ export default function NurseRosterManager({ onClose, onChange }) {
                 max={50}
                 value={form.max_visits_per_day}
                 onChange={e => setForm(f => ({ ...f, max_visits_per_day: parseInt(e.target.value, 10) || '' }))}
-                style={{ fontSize: '16px', maxWidth: 120 }}
+                style={{ fontSize: '16px', maxWidth: 120, padding: '6px 8px' }}
               />
             </div>
 <div>
@@ -200,7 +198,7 @@ export default function NurseRosterManager({ onClose, onChange }) {
               className="btn btn-primary"
               disabled={saving}
               onClick={handleAdd}
-              style={{ marginTop: 14, width: isMobile ? '100%' : 'auto', alignSelf: isMobile ? 'stretch' : 'flex-start' }}
+              style={{ marginTop: 14, width: isMobile ? '100%' : 'auto', alignSelf: isMobile ? 'stretch' : 'flex-start' ,padding: '8px 12px'}}
             >
               {saving ? <span className="spinner" style={{ width: 14, height: 14 }} /> : <><Plus size={14} /> Ajouter</>}
             </button>
@@ -209,7 +207,7 @@ export default function NurseRosterManager({ onClose, onChange }) {
           </div>
 
           {/* ── Section 2 : Liste des infirmières ── */}
-          <div style={{ ...styles.stepBody, marginTop: 22 }}>
+          <div style={{ ...styles.stepBody, marginTop: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
               <div style={styles.stepIcon}>
                 <Users size={20} color="var(--teal)" />
@@ -255,7 +253,7 @@ export default function NurseRosterManager({ onClose, onChange }) {
                         </div>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: isMobile ? 'space-between' : 'flex-end' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: isMobile ? 'space-between' : 'flex-end' ,flexDirection: 'column'}}>
                       <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                         Max/jour
                         <input
@@ -264,7 +262,7 @@ export default function NurseRosterManager({ onClose, onChange }) {
                           max={50}
                           defaultValue={n.max_visits_per_day}
                           onBlur={e => updateCapacity(n, e.target.value)}
-                          style={{ width: 46, padding: '3px 5px', borderRadius: 4, border: '1px solid var(--border)', fontSize: '0.8rem' }}
+                          style={{ width: 46, padding: '3px 5px', borderRadius: 16, border: '1px solid var(--border)', fontSize: '0.8rem' }}
                         />
                       </label>
                       <button className="btn btn-secondary btn-sm" onClick={() => toggleActive(n)}>
@@ -323,7 +321,7 @@ const styles = {
     marginTop: 2, lineHeight: 1.5,
   },
   nurseRow: {
-    display: 'flex', flexDirection: 'column', gap: 10,
+    display: 'flex', flexDirection: 'row', gap: 10,justifyContent: 'space-between', alignItems: 'flex-start',
     padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
     background: 'var(--cream)',
   },
