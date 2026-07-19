@@ -4,9 +4,12 @@ import ProfileForm from '../../components/ProfileForm';
 import OrdonnanceUpload from '../../components/OrdonnanceUpload';
 import StatusBadge from '../../components/StatusBadge';
 import NurseRequestModal from '../../components/NurseRequestModal';
+import AlertDialog from '../../components/alertDialog/AlertDialog';
 import AnimatedList from '../../components/AnimatedList';
+import Pagination from '../../components/Pagination';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { demandsAPI, profileAPI, nurseAPI } from '../../services/api';
+import toast from '../../components/toast/toastStore.js';
 import { LayoutDashboard, User, Upload, FileText, RefreshCw, DollarSign, FlaskConical, Stethoscope } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -68,7 +71,10 @@ export default function ClientDashboard() {
         setHasProfile(exists);
         if (!exists) setTab('profile');
       })
-      .catch(() => setTab('profile'))
+      .catch(() => {
+        toast.danger('Erreur', { description: 'Impossible de charger votre profil.' });
+        setTab('profile');
+      })
       .finally(() => setProfileLoading(false));
   }, []);
 
@@ -201,7 +207,9 @@ function DashboardTab({ setTab, isMobile }) {
   const [loading, setLoading] = useState(true);
 
   const load = () => {
-    demandsAPI.list(1, 5).then(r => setDemands(r.data.data)).catch(() => {}).finally(() => setLoading(false));
+    demandsAPI.list(1, 5).then(r => setDemands(r.data.data))
+      .catch(() => toast.danger('Erreur', { description: 'Impossible de charger vos demandes.' }))
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => { load(); }, []);
@@ -286,18 +294,31 @@ function DashboardTab({ setTab, isMobile }) {
 }
 
 function HistoryTab() {
+  const PAGE_LIMIT = 10;
+
   const [demands, setDemands] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [nurseModal, setNurseModal] = useState(null); // demand object
-  const [nurseSuccess, setNurseSuccess] = useState(null); // demand id
   const [nurseRequests, setNurseRequests] = useState({}); // { demand_id: {id, status, preferred_date, preferred_slot, assigned_nurse_name, ...} }
   const [cancellingId, setCancellingId] = useState(null);
+  const [cancelDialog, setCancelDialog] = useState(null); // { nurseRequestId, demandId }
 
-  const load = () => {
+  const load = (p = page) => {
     setLoading(true);
-    demandsAPI.list(1, 100).then(r => setDemands(r.data.data)).catch(() => {}).finally(() => setLoading(false));
+    demandsAPI.list(p, PAGE_LIMIT)
+      .then(r => {
+        setDemands(r.data.data);
+        setTotal(r.data.total);
+        setPage(r.data.page);
+      })
+      .catch(() => toast.danger('Erreur', { description: 'Impossible de charger vos demandes.' }))
+      .finally(() => setLoading(false));
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(1); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const totalPages = Math.ceil(total / PAGE_LIMIT);
 
   // Once demands are loaded, fetch this client's own nurse requests for all
   // of them in one call, keyed by demand_id — gives real status (pending /
@@ -315,14 +336,17 @@ function HistoryTab() {
 
   // Realtime subscription removed (Epic 5.2). Stopgap: poll every 30s,
   // plus the existing manual "Actualiser" button in the card header.
+  // Re-fetches whichever page the client is currently viewing.
   useEffect(() => {
-    const interval = setInterval(load, 900000); // 15 minutes
+    const interval = setInterval(() => load(page), 900000); // 15 minutes
     return () => clearInterval(interval);
-  }, []);
+  }, [page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleNurseSuccess = (demandId) => {
     setNurseModal(null);
-    setNurseSuccess(demandId);
+    toast.success('Demande envoyée', {
+      description: "Un technicien vous contactera pour confirmer le rendez-vous.",
+    });
     // Re-fetch so the new request's real status (pending, with its date/slot)
     // replaces the optimistic "just submitted" state.
     nurseAPI.mine(demands.map(d => d.id))
@@ -332,11 +356,9 @@ function HistoryTab() {
         setNurseRequests(byDemand);
       })
       .catch(() => {});
-    setTimeout(() => setNurseSuccess(null), 4000);
   };
 
   const handleCancelNurse = async (nurseRequestId, demandId) => {
-    if (!window.confirm('Annuler cette demande d\'infirmière ?')) return;
     setCancellingId(nurseRequestId);
     try {
       await nurseAPI.cancel(nurseRequestId);
@@ -344,27 +366,22 @@ function HistoryTab() {
         ...prev,
         [demandId]: { ...prev[demandId], status: 'cancelled', cancelled_by: 'client' },
       }));
+      toast.info('Demande annulée', { description: "La demande d'infirmière a bien été annulée." });
     } catch (e) {
-      alert(e.response?.data?.error || "Erreur lors de l'annulation");
+      toast.danger('Erreur', { description: e.response?.data?.error || "Erreur lors de l'annulation" });
     } finally {
       setCancellingId(null);
+      setCancelDialog(null);
     }
   };
   
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {nurseSuccess && (
-        <div className="alert alert-success">
-          <Stethoscope size={15} style={{ flexShrink: 0 }} />
-          Demande d'infirmière envoyée ! Un technicien vous contactera pour confirmer le rendez-vous.
-        </div>
-      )}
-
       <div className="cardd">
         <div className="card-header">
           <h2 style={{ margin: 0, fontSize: '1.2rem' }}>Mes demandes</h2>
-          <button className="btn btn-secondary btn-sm" onClick={load}><RefreshCw size={13} /> Actualiser</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => load(page)}><RefreshCw size={13} /> Actualiser</button>
         </div>
 
         {loading ? (
@@ -372,21 +389,32 @@ function HistoryTab() {
         ) : demands.length === 0 ? (
           <div style={styles.empty}><FileText size={28} color="var(--text-muted)" /><p>Aucune demande soumise</p></div>
         ) : (
-          <AnimatedList
-            items={demands}
-            getKey={d => d.id}
-            ariaLabel="Mes demandes"
-            itemClassName="client-demand-list__item"
-            renderItem={d => (
-              <MobileDemandCard d={d} showLink
-                showNurse={isProcessed(d.status)}
-                nurseRequest={nurseRequests[d.id]}
-                onNurse={() => setNurseModal(d)}
-                onCancelNurse={handleCancelNurse}
-                cancellingNurse={cancellingId === nurseRequests[d.id]?.id}
+          <>
+            <AnimatedList
+              items={demands}
+              getKey={d => d.id}
+              ariaLabel="Mes demandes"
+              itemClassName="client-demand-list__item"
+              renderItem={d => (
+                <MobileDemandCard d={d} showLink
+                  showNurse={isProcessed(d.status)}
+                  nurseRequest={nurseRequests[d.id]}
+                  onNurse={() => setNurseModal(d)}
+                  onCancelNurse={(nurseRequestId, demandId) => setCancelDialog({ nurseRequestId, demandId })}
+                  cancellingNurse={cancellingId === nurseRequests[d.id]?.id}
+                />
+              )}
+            />
+            {totalPages > 1 && (
+              <Pagination
+                page={page}
+                totalPages={totalPages}
+                total={total}
+                limit={PAGE_LIMIT}
+                onPageChange={p => load(p)}
               />
             )}
-          />
+          </>
         )}
       </div>
 
@@ -395,6 +423,19 @@ function HistoryTab() {
           demand={nurseModal}
           onClose={() => setNurseModal(null)}
           onSuccess={() => handleNurseSuccess(nurseModal.id)}
+        />
+      )}
+
+      {cancelDialog && (
+        <AlertDialog
+          status="danger"
+          heading="Annuler cette demande d'infirmière ?"
+          description="Cette action ne peut pas être annulée. Vous pourrez soumettre une nouvelle demande plus tard si besoin."
+          confirmLabel="Annuler la demande"
+          cancelLabel="Retour"
+          confirmLoading={cancellingId === cancelDialog.nurseRequestId}
+          onConfirm={() => handleCancelNurse(cancelDialog.nurseRequestId, cancelDialog.demandId)}
+          onClose={() => setCancelDialog(null)}
         />
       )}
     </div>

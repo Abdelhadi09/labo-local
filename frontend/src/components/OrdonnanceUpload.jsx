@@ -3,6 +3,8 @@ import { useDropzone } from 'react-dropzone';
 import { demandsAPI, servicesAPI } from '../services/api';
 import { generateUUID } from '../utils/uuid';
 import { normalize, matchesQuery, highlight } from '../utils/search';
+import toast from './toast/toastStore.js';
+import { useIsMobile } from '../hooks/useIsMobile.js';
 import {
   Upload, FileImage, Scan, PenLine, CheckCircle,
   AlertCircle, X, DollarSign, FlaskConical, ListChecks,
@@ -19,7 +21,7 @@ export default function OrdonnanceUpload({ onSuccess }) {
   const [selectedServices, setSelectedServices] = useState([]);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
-  const [error, setError] = useState('');
+  const isMobile = useIsMobile();
 
   // Search / filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -43,7 +45,6 @@ export default function OrdonnanceUpload({ onSuccess }) {
   const onDrop = useCallback((acceptedFiles) => {
     if (acceptedFiles.length > 0) {
       setFile(acceptedFiles[0]);
-      setError('');
       setResult(null);
     }
   }, []);
@@ -55,9 +56,9 @@ export default function OrdonnanceUpload({ onSuccess }) {
     maxSize: 10 * 1024 * 1024,
     onDropRejected: (files) => {
       const err = files[0]?.errors[0];
-      if (err?.code === 'file-too-large') setError('Le fichier est trop volumineux (max 10 Mo)');
-      else if (err?.code === 'file-invalid-type') setError('Format non supporté. Utilisez JPEG, PNG ou WEBP');
-      else setError('Fichier invalide');
+      if (err?.code === 'file-too-large') toast.danger('Fichier trop volumineux', { description: 'Le fichier dépasse la taille maximale de 10 Mo.' });
+      else if (err?.code === 'file-invalid-type') toast.danger('Format non supporté', { description: 'Utilisez JPEG, PNG ou WEBP.' });
+      else toast.danger('Fichier invalide', { description: "Ce fichier ne peut pas être utilisé." });
     },
   });
 
@@ -74,7 +75,7 @@ export default function OrdonnanceUpload({ onSuccess }) {
   const handleSubmitClick = () => {
     if (type === 'manual') {
       if (selectedServices.length === 0) {
-        setError('Sélectionnez au moins une analyse');
+        toast.warning('Sélection requise', { description: 'Sélectionnez au moins une analyse.' });
         return;
       }
       if (servicesWithRemarques.length > 0) {
@@ -87,13 +88,12 @@ export default function OrdonnanceUpload({ onSuccess }) {
 
   const handleSubmit = async () => {
     setLoading(true);
-    setError('');
     setResult(null);
     try {
       const idempotencyKey = generateUUID();
       if (type === 'manual') {
         if (selectedServices.length === 0) {
-          setError('Sélectionnez au moins une analyse');
+          toast.warning('Sélection requise', { description: 'Sélectionnez au moins une analyse.' });
           setLoading(false);
           return;
         }
@@ -103,6 +103,7 @@ export default function OrdonnanceUpload({ onSuccess }) {
         formData.append('idempotency_key', idempotencyKey);
         const res = await demandsAPI.submit(formData);
         setResult(res.data);
+        toast.success('Demande envoyée', { description: 'Votre demande a bien été soumise.' });
         if (onSuccess) onSuccess(res.data);
       } else {
         if (!file) return;
@@ -112,10 +113,11 @@ export default function OrdonnanceUpload({ onSuccess }) {
         formData.append('idempotency_key', idempotencyKey);
         const res = await demandsAPI.submit(formData);
         setResult(res.data);
+        toast.success('Demande envoyée', { description: 'Votre demande a bien été soumise.' });
         if (onSuccess) onSuccess(res.data);
       }
     } catch (err) {
-      setError(err.response?.data?.error || 'Erreur lors de la soumission');
+      toast.danger('Erreur', { description: err.response?.data?.error || 'Erreur lors de la soumission' });
     } finally {
       setLoading(false);
     }
@@ -125,7 +127,6 @@ export default function OrdonnanceUpload({ onSuccess }) {
     setFile(null);
     setType(null);
     setResult(null);
-    setError('');
     setSelectedServices([]);
     setSearchQuery('');
     setShowSelected(false);
@@ -150,18 +151,18 @@ export default function OrdonnanceUpload({ onSuccess }) {
       {!type && (
         <div>
           <p style={styles.label}>Comment souhaitez-vous soumettre votre demande ?</p>
-          <div style={styles.typeGrid}>
-            <button style={styles.typeCard} onClick={() => setType('ocr')}>
+          <div style={{display: 'flex' , flexDirection: isMobile ? 'column' : 'row', flexWrap: 'wrap' , gap: 4}}>
+            {/* <button style={styles.typeCard} onClick={() => setType('ocr')}>
               <Scan size={28} color="var(--teal)" />
               <strong>Ordonnance imprimée</strong>
               <span>Scannez l'ordonnance — traitement OCR automatique</span>
-            </button>
-            <button style={styles.typeCard} onClick={() => setType('handwritten')}>
+            </button> */}
+            <button style={{ ...styles.typeCard , width: isMobile ? '100%' : '49%' }} onClick={() => setType('handwritten')}>
               <PenLine size={28} color="var(--coral)" />
               <strong>Ordonnance manuscrite</strong>
               <span>Uploadez la photo — un technicien la traitera</span>
             </button>
-            <button style={{ ...styles.typeCard, gridColumn: '1 / -1' }} onClick={() => setType('manual')}>
+            <button style={{ ...styles.typeCard , width: isMobile ? '100%' : '49%' }} onClick={() => setType('manual')}>
               <ListChecks size={28} color="var(--gold)" />
               <strong>Sélection manuelle</strong>
               <span>Vous connaissez vos analyses — choisissez-les directement sans uploader de fichier</span>
@@ -334,13 +335,6 @@ export default function OrdonnanceUpload({ onSuccess }) {
         </div>
       )}
 
-      {error && (
-        <div className="alert alert-error">
-          <AlertCircle size={15} />
-          {error}
-        </div>
-      )}
-
       {type && (type === 'manual' ? selectedServices.length > 0 : !!file) && (
         <button
           className="btn btn-primary"
@@ -476,7 +470,7 @@ const styles = {
     paddingBottom: 16, borderBottom: '1px solid var(--border)',
   },
   label: { fontSize: '0.88rem', color: 'var(--text-muted)', marginBottom: 4 },
-  typeGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 },
+  
   typeCard: {
     display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
     padding: '22px 16px', border: '2px dashed var(--border)',
