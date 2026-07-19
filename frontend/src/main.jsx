@@ -2,12 +2,14 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import ErrorBoundary from './components/ErrorBoundry.jsx';
+import ToastProvider from './components/toast/Toast.jsx';
 import './index.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ErrorBoundary>
       <App />
+      <ToastProvider placement="top center" />
     </ErrorBoundary>
   </React.StrictMode>
 );

@@ -83,7 +83,7 @@ const S = {
   btn: {
     minWidth: 32, height: 32, padding: '0 8px',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    borderRadius: 6, border: '1.5px solid var(--border)',
+    borderRadius: '50%', border: '1.5px solid var(--border)',
     background: 'white', color: 'var(--text-dark)',
     fontSize: '0.82rem', fontWeight: 500, cursor: 'pointer',
     fontFamily: 'var(--font-body)', transition: 'all 0.12s',
