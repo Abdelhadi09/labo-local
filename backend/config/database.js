@@ -72,7 +72,7 @@ const initializeDatabase = async () => {
   // Actually verify connectivity now, instead of just logging (the old
   // Supabase version couldn't do this — there was nothing to "connect" to
   // ahead of time since every call was a standalone HTTPS request).
-  await query('SELECT 1');
+  await query('select 1'); // any simple query will do; this one is cheap and doesn't require any special permissions
   console.log('✅ Database ready (PostgreSQL)');
 };
 

@@ -15,7 +15,6 @@ router.get('/', authenticate, requireRole('worker', 'admin'), async (req, res) =
       `SELECT id, name, address, lat, lng FROM branches WHERE is_active = true ORDER BY name ASC`
     );
     res.json({ data: rows });
-    console.log('branches', rows);
   } catch (err) {
     console.error('List branches error:', err);
     res.status(500).json({ error: 'Erreur lors de la récupération des agences' });
