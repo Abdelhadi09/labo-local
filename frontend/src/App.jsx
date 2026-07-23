@@ -11,11 +11,10 @@ const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
 const OAuthCallback = lazy(() => import('./pages/OAuthCallback'));
 const ClientDashboard = lazy(() => import('./pages/client/ClientDashboard'));
 const WorkerDashboard = lazy(() => import('./pages/worker/WorkerDashboard'));
-const OnboardingPage = lazy(() => import('./pages/OnboardingPage'));
+const LandingPage = lazy(() => import('./pages/LandingPage'));
 
 import ErrorBoundary from './components/ErrorBoundry.jsx';
 import PageLoader from './components/PageLoader';
-import { hasCompletedOnboarding } from './utils/onboarding';
 
 const ProtectedRoute = ({ children, role }) => {
   const { user, loading } = useAuth();
@@ -32,30 +31,13 @@ const ProtectedRoute = ({ children, role }) => {
   return children;
 };
 
-const OnboardingGuard = ({ children }) => {
-  const onboardingDone = hasCompletedOnboarding();
-
-  if (!onboardingDone) {
-    return <Navigate to="/onboarding" replace />;
-  }
-
-  return children;
-};
-
 const RootRedirect = () => {
   const { user, loading } = useAuth();
 
   if (loading) return <PageLoader />;
 
   if (!user) {
-    const onboardingDone = hasCompletedOnboarding();
-
-    return (
-      <Navigate
-        to={onboardingDone ? '/login' : '/onboarding'}
-        replace
-      />
-    );
+    return <LandingPage />;
   }
 
   return (user.role === 'worker' || user.role === 'admin')
@@ -72,26 +54,13 @@ export default function App() {
             <Route path="/" element={<RootRedirect />} />
 
             <Route
-              path="/onboarding"
-              element={<OnboardingPage />}
-            />
-
-            <Route
               path="/login"
-              element={
-                <OnboardingGuard>
-                  <LoginPage />
-                </OnboardingGuard>
-              }
+              element={<LoginPage />}
             />
 
             <Route
               path="/register"
-              element={
-                <OnboardingGuard>
-                  <RegisterPage />
-                </OnboardingGuard>
-              }
+              element={<RegisterPage />}
             />
             <Route
   path="/verify-email"
@@ -100,11 +69,7 @@ export default function App() {
 
             <Route
               path="/forgot-password"
-              element={
-                <OnboardingGuard>
-                  <ForgotPasswordPage />
-                </OnboardingGuard>
-              }
+              element={<ForgotPasswordPage />}
             />
 
             <Route
