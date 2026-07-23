@@ -273,30 +273,50 @@ export default function LandingPage() {
 />}
 {!isMobile && <div
                         className="landing-service-grid">
-    <article><img
-                            src="https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=900&q=80"
-                            alt="Matériel de laboratoire pour analyses médicales"/>
-                            <div><Microscope size={24}/>
-                                <h3>Analyses médicales</h3>
-                                <p>Centralisez vos demandes d’analyses depuis votre espace personnel.</p>
-                            </div>
-                        </article>
-                        <article><img
-                            src="https://images.unsplash.com/photo-1584982751601-97dcc096659c?auto=format&fit=crop&w=900&q=80"
-                            alt="Professionnel de santé consultant un dossier médical"/>
-                            <div><FileUp size={24}/>
-                                <h3>Dépôt d’ordonnance</h3>
-                                <p>Envoyez une ordonnance lisible et gardez le suivi de son traitement.</p>
-                            </div>
-                        </article>
-                        <article id="nurse"><img
-                            src="https://images.unsplash.com/photo-1584515933487-779824d29309?auto=format&fit=crop&w=900&q=80"
-                            alt="Infirmière échangeant avec une patiente à domicile"/>
-                            <div><Stethoscope size={24}/>
-                                <h3>Infirmier à domicile</h3>
-                                <p>Demandez une visite selon les créneaux et la couverture disponibles.</p>
-                            </div>
-                        </article>
+    <article className="feature-card">
+    <img
+        src="https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=900&q=80"
+        alt="Matériel de laboratoire pour analyses médicales"
+    />
+
+    <div className="feature-card-content">
+        
+        <h3>Analyses médicales</h3>
+        <p>
+            Centralisez vos demandes d’analyses depuis votre espace personnel.
+        </p>
+    </div>
+</article>
+
+<article className="feature-card">
+    <img
+        src="https://images.unsplash.com/photo-1584982751601-97dcc096659c?auto=format&fit=crop&w=900&q=80"
+        alt="Professionnel de santé consultant un dossier médical"
+    />
+
+    <div className="feature-card-content">
+        
+        <h3>Dépôt d’ordonnance</h3>
+        <p>
+            Envoyez une ordonnance lisible et gardez le suivi de son traitement.
+        </p>
+    </div>
+</article>
+
+<article className="feature-card" id="nurse">
+    <img
+        src="https://images.unsplash.com/photo-1584515933487-779824d29309?auto=format&fit=crop&w=900&q=80"
+        alt="Infirmière échangeant avec une patiente à domicile"
+    />
+
+    <div className="feature-card-content">
+        
+        <h3>Infirmier à domicile</h3>
+        <p>
+            Demandez une visite selon les créneaux et la couverture disponibles.
+        </p>
+    </div>
+</article>
                         </div>
 }
                     
